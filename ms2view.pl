@@ -85,9 +85,9 @@ use Data::Dumper;
 
 use lib $FindBin::Bin;
 use MassCanvas;
-use B2B::MS::MzML;
-use B2B::MS::PepXML;
-use B2B::MS::PepInfo qw/calc_fragments/;
+use MS::Parser::MzML;
+use MS::Parser::PepXML;
+use MS::PepInfo qw/calc_fragments/;
 
 # constants
 use constant ZI => 1.25;
@@ -111,10 +111,9 @@ my $zoom_mode = 0;
 
 my $mzml_file = $ARGV[0];
 my $pepxml_file = $ARGV[1];
-#my $curr_scan_index = $ARGV[1];
 my $curr_scan_index;
-my $parser = B2B::MS::MzML->new;
-my $pep_p = B2B::MS::PepXML->new();
+my $parser = MS::Parser::MzML->new;
+my $pep_p  = MS::Parser::PepXML->new();
 
 my $ms1_canvas;
 my $ms2_canvas;

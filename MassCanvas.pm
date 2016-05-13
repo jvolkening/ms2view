@@ -13,7 +13,7 @@ use List::Util qw/min max any/;
 use POSIX qw/floor ceil/;
 use MIME::Base64 qw/decode_base64/;
 
-use B2B::MS::CV qw/:mzml/;
+use MS::CV qw/:constants/;
 
 use Glib::Object::Subclass
 	Gtk2::DrawingArea::,
@@ -1230,12 +1230,12 @@ sub load_spectrum {
     }
     $self->{x} = [$spectrum->mz];
     $self->{y} = [$spectrum->int];
-    $self->{type} = defined $spectrum->{cvParam}->{&IS_CENTROID} ? 'sticks' : 'lines';
+    $self->{type} = defined $spectrum->{cvParam}->{&CENTROID_SPECTRUM} ? 'sticks' : 'lines';
 
     my $description = "Scan: " . $spectrum->id;
     $description .= " | MS:"  . $spectrum->ms_level;
     $description .= " | RT:"  . round($spectrum->rt,2) . 's';
-    my $tic = $spectrum->{cvParam}->{&TOTAL_CURRENT}->[0]->{value};
+    my $tic = $spectrum->{cvParam}->{&TOTAL_ION_CURRENT}->[0]->{value};
     my ($base,$exp) = split 'e', $tic;
     $tic = round($base,0);
     if (defined $exp) {
