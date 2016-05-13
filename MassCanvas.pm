@@ -26,6 +26,7 @@ use Glib::Object::Subclass
         scroll_event         => \&on_scroll,
 	};
 
+my @blue = (0, 0, 1, 1);
 my @label_colors = (
     [0.0, 0.0, 0.0, 1.0],
     [1.0, 0.0, 0.0, 1.0],
@@ -73,30 +74,32 @@ QmCC
 PNG
 
 
-use constant L_MARGIN => 80;
-use constant R_MARGIN => 20;
+use constant L_MARGIN => 60;
+use constant R_MARGIN => 10;
 use constant B_MARGIN => 40;
-use constant T_MARGIN => 20;
+use constant T_MARGIN => 10;
 use constant TICK_LEN => 6;
 
 use constant ZI => 1.25;
 use constant ZO => 0.80;
 use constant ZMAX => 10000;
 
+
 sub _clamp {
 
     my ($val, $lower, $upper) = @_;
-    return $lower if ($val < $lower);
-    return $upper if ($val > $upper);
-    return $val;
+    return $val < $lower ? $lower
+         : $val > $upper ? $upper
+         : $val;
 
 }
 
 sub zoom_to {
 
     my ($self, $l_mz, $r_mz) = @_;
+
     $self->{xscale} = ($self->{x}->[-1] - $self->{x}->[0])/($r_mz - $l_mz);
-    $self->{xscale} = max($self->{xscale},1);
+    $self->{xscale} = _clamp( $self->{xscale}, 1, $self->{xscale} );
 
     $self->{pwidth} = $self->{cwidth}*$self->{xscale};
 
@@ -113,8 +116,8 @@ sub zoom_to {
     $self->calc_axes;
     $self->calc_coords(1);
 
-    $self->{x_offset} = $self->mz2px($l_mz);
-    $self->{x_offset} = max(0, $self->{x_offset}); 
+    $self->{p_x_offset} = $self->mz2px($l_mz);
+    $self->{p_x_offset} = max(0, $self->{p_x_offset}); 
 
     $self->draw;
 
@@ -152,9 +155,9 @@ sub on_scroll {
     $self->calc_coords($axis eq 'x');
     
     # center on pointer
-    my $new_x_pixel = int($self->mz2px($x_data)) - $self->{x_offset};
-    $self->{x_offset} += $new_x_pixel - $xp;
-    $self->{x_offset} = max(0, $self->{x_offset}); 
+    my $new_x_pixel = int($self->mz2px($x_data)) - $self->{p_x_offset};
+    $self->{p_x_offset} += $new_x_pixel - $xp;
+    $self->{p_x_offset} = max(0, $self->{p_x_offset}); 
 
     $self->draw;
 }
@@ -222,8 +225,6 @@ sub calc_used {
             push @x_used, $curr_mz;
             push @y_used, $curr_int;
             # store link back to uncompressed index
-            my $foo = $x_used[$#x_used];
-            my $bar = $self->{x}->[$curr_idx];
             $self->{xmap}->{$#x_used} = $curr_idx;
             if (defined $last_int && $last_int == 0) {
                 push @x_used, $last_mz;
@@ -352,8 +353,8 @@ sub calc_axes {
 
     # recalculate axes
     if (defined $self->{x}) {
-        my $min_x = $self->{x}->[0];
-        my $max_x = $self->{x}->[-1];
+        my $min_x = $self->{win_min} // $self->{x}->[0];
+        my $max_x = $self->{win_max} // $self->{x}->[-1];
         my $min_y = 0;
         my $max_y = max(@{ $self->{y} })*1.2;
         my ($min,$max,$space,$digits) = (0,1,1,1);
@@ -426,17 +427,28 @@ sub _euclidean {
 
 }
 
+sub index_at {
+
+    my ($self, $xc) = @_;
+
+    $xc += $self->{p_x_offset};
+    my $i = $self->find_nearest($xc);
+
+    return $self->{xmap}->{$i};
+
+}
+
 sub closest_point {
 
     my ($self, $xc, $yc) = @_;
 
-    $xc += $self->{x_offset};
+    $xc += $self->{p_x_offset};
 
     #calculate view window
     my $best_i;
     my $best_d;
 
-    my $i = $self->find_nearest($self->{x_offset}) - 1;
+    my $i = $self->find_nearest($self->{p_x_offset}) - 1;
     $i = 0 if ($i < 0);
     for ($i..$#{$self->{x_pixel}}) {
         my $xp = $self->{x_pixel}->[$_];
@@ -446,7 +458,7 @@ sub closest_point {
             $best_d = $dist;
             $best_i = $_;
         }
-        last if ($xp > $self->{x_offset} + $self->{cwidth});
+        last if ($xp > $self->{p_x_offset} + $self->{cwidth});
     }
     return $best_i;
 
@@ -467,9 +479,16 @@ sub on_click {
             my $i = $self->closest_point($px, $py);
             $self->{ruler}->[0] = $i;
         }
-        else {
+        elsif (@state && $state[0] eq 'shift-mask') {
             $self->{left_drag} = [$px,$px];
             $self->queue_draw;
+        }
+        else {
+            $self->{select} = $px;
+            my $i = $self->index_at($px);
+            my $this = $self->{x}->[$i];
+            $self->{idx_select} = $i;
+            $self->{cb_click}->($i,$this);
         }
 
     }
@@ -490,8 +509,8 @@ sub on_release {
         if (defined $self->{left_drag}) {
             my $min_y;
             my $max_i;
-            my $l = $self->{left_drag}->[0] - 1 + $self->{x_offset};
-            my $r = $self->{left_drag}->[1] + 1 + $self->{x_offset};
+            my $l = $self->{left_drag}->[0] - 1 + $self->{p_x_offset};
+            my $r = $self->{left_drag}->[1] + 1 + $self->{p_x_offset};
             for (0..$#{ $self->{x_pixel} }) {
                 my $x  = $self->{x_pixel}->[$_];
                 next if ($x <= $l);
@@ -528,7 +547,7 @@ sub px2mz {
 
     my ($self,$px) = @_;
     my $mw = ($self->{x_maxp} - $self->{x_minp}) / $self->{pwidth};
-    return ($px + $self->{x_offset}) * $mw + $self->{x_minp};
+    return ($px + $self->{p_x_offset}) * $mw + $self->{x_minp};
 
 }
 
@@ -640,10 +659,10 @@ sub on_motion {
 
         elsif ($self->{right_drag}) {
             if (defined $self->{last_x}) {
-                $self->{x_offset} += $self->{last_x} - $xp;
+                $self->{p_x_offset} += $self->{last_x} - $xp;
                 my $max = $self->{pwidth} - ($self->{cwidth});
-                $self->{x_offset} = $max if ($self->{x_offset} > $max);
-                $self->{x_offset} = 0 if ($self->{x_offset} < 0);
+                $self->{p_x_offset} = $max if ($self->{p_x_offset} > $max);
+                $self->{p_x_offset} = 0 if ($self->{p_x_offset} < 0);
             
             }
             $self->draw();
@@ -784,8 +803,8 @@ sub draw {
 
             my ($l_mz,$r_mz,$color,$label) = @{ $self->{hilites}->{$_} };
             my @rgba = map {hex($_)/255 } unpack 'xa2a2a2a2', $color;
-            my $l_px = $self->mz2px($l_mz) - $self->{x_offset};
-            my $r_px = $self->mz2px($r_mz) - $self->{x_offset};
+            my $l_px = $self->mz2px($l_mz) - $self->{p_x_offset};
+            my $r_px = $self->mz2px($r_mz) - $self->{p_x_offset};
             $cr_data->save;
             $cr_data->set_source_rgba(@rgba);
             $cr_data->rectangle($l_px,0,$r_px - $l_px+1,$self->{cheight});
@@ -810,7 +829,7 @@ sub draw {
 
             my ($mz,$color,$label) = @{ $self->{vlines}->{$_} };
             my @rgba = map {hex($_)/255 } unpack 'xa2a2a2a2', $color;
-            my $px = $self->mz2px($mz) - $self->{x_offset};
+            my $px = $self->mz2px($mz) - $self->{p_x_offset};
             $cr_data->save;
             $cr_data->set_source_rgba(@rgba);
             $cr_data->move_to($px,0);
@@ -840,7 +859,7 @@ sub draw {
         $layout = Pango::Cairo::create_layout($cr_data);
         $layout->set_font_description($self->{font_small});
         while ($mz <= $self->{x_maxp}) {
-            my $xp = $self->mz2px( $mz ) - $self->{x_offset};
+            my $xp = $self->mz2px( $mz ) - $self->{p_x_offset};
             last if ($xp > $self->{cwidth});
             #$layout->set_text( sprintf "%.$self->{x_digits}f", $mz );
             $layout->set_text( $mz );
@@ -868,7 +887,7 @@ sub draw {
 
         my $last_point;
 
-        my $left = $self->{x_offset};
+        my $left = $self->{p_x_offset};
 
         #semi-binary search
         my $i = $self->find_nearest($left) - 1;
@@ -876,7 +895,7 @@ sub draw {
         
         #for ($start_i..$end_i) {
         while ($i <= $#{$xref}) {
-            my $xp = $xref->[$i] - $self->{x_offset};
+            my $xp = $xref->[$i] - $self->{p_x_offset};
             my $yp = $yref->[$i];
             if ($self->{type} eq 'sticks') {
                 $cr_data->move_to($xp, $self->{cheight});
@@ -945,6 +964,10 @@ sub expose {
     $cr->rectangle(0,0,$w,$h);
     $cr->set_source_rgba(1,1,1,1);
     $cr->fill;
+    $cr->set_line_width(1);
+    $cr->rectangle(0.5,0.5,$w-1,$h-1);
+    $cr->set_source_rgba(0,0,0,1);
+    $cr->stroke;
     $cr->restore;
 
     # draw base surface
@@ -1027,9 +1050,9 @@ sub expose {
         my $mz_x1 = $self->{x_used}->[ $self->{ruler}->[0] ];
         my $mz_x2 = $self->{x_used}->[ $self->{ruler}->[1] ];
         my $x1 = $self->{x_pixel}->[ $self->{ruler}->[0] ]
-            - $self->{x_offset} + L_MARGIN;
+            - $self->{p_x_offset} + L_MARGIN;
         my $x2 = $self->{x_pixel}->[ $self->{ruler}->[1] ]
-            - $self->{x_offset} + L_MARGIN;
+            - $self->{p_x_offset} + L_MARGIN;
         my $y1 = $self->{y_pixel}->[ $self->{ruler}->[0] ] + T_MARGIN;
         my $y2 = $self->{y_pixel}->[ $self->{ruler}->[1] ] + T_MARGIN;
         
@@ -1069,7 +1092,7 @@ sub expose {
     # draw plot border
     $cr->save;
     $cr->set_line_width(1);
-    $cr->set_source_rgba(0.0,0.0,1.0,1.0);
+    $cr->set_source_rgba( @blue );
     $cr->rectangle(L_MARGIN + 0.5, T_MARGIN + 0.5, $w - R_MARGIN - L_MARGIN, $h - T_MARGIN - B_MARGIN);
     $cr->stroke;
     $cr->restore;
@@ -1083,13 +1106,7 @@ sub INIT_INSTANCE {
 
 	my ($self) = @_;
 
-    $self->{y_mult} = 1;
-	$self->{line_width} = 0.05;
-	$self->{radius}     = 0.42;
-    $self->{zoom} = 1;
-    $self->{show_grid} = 1;
-    $self->{show_hilite} = 0;
-    $self->{x_offset} = 0;
+    $self->{p_x_offset} = 0;
     $self->{x_min} = 0;
     $self->{x_max} = 1;
     $self->{x_minp} = 0;
@@ -1193,7 +1210,7 @@ sub resize {
         $self->calc_axes;
         $self->calc_coords;
 
-        $self->{x_offset} = $self->mz2px($offset) - 0.5;
+        $self->{p_x_offset} = $self->mz2px($offset) - 0.5;
 
         $self->draw();
 
@@ -1218,7 +1235,7 @@ sub load_spectrum {
     $self->{yscale} = 1;
     $self->{pwidth} = $self->{cwidth}*$self->{xscale};
     $self->{pheight} = $self->{cheight}*$self->{yscale};
-    $self->{x_offset} = 0;
+    $self->{p_x_offset} = 0;
 
     if (! defined $spectrum) { # blank canvas
         $self->{x_pixel} = undef;
@@ -1228,8 +1245,8 @@ sub load_spectrum {
         $self->draw();
         return;
     }
-    $self->{x} = [$spectrum->mz];
-    $self->{y} = [$spectrum->int];
+    $self->{x} = $spectrum->mz;
+    $self->{y} = $spectrum->int;
     $self->{type} = defined $spectrum->{cvParam}->{&CENTROID_SPECTRUM} ? 'sticks' : 'lines';
 
     my $description = "Scan: " . $spectrum->id;
@@ -1255,6 +1272,12 @@ sub load_spectrum {
     $self->{ylab} = 'intensity';
     $self->{labeled} = {};
 
+    my $lower = $spectrum->{scanList}->{scan}->[0]->{scanWindowList}->{scanWindow}->[0]->{cvParam}->{&SCAN_WINDOW_LOWER_LIMIT()}->[0]->{value};
+
+    my $upper = $spectrum->{scanList}->{scan}->[0]->{scanWindowList}->{scanWindow}->[0]->{cvParam}->{&SCAN_WINDOW_UPPER_LIMIT()}->[0]->{value};
+
+    $self->{win_min} = $lower;
+    $self->{win_max} = $upper;
     $self->calc_used;
     $self->calc_axes;
     $self->calc_coords;
@@ -1272,7 +1295,7 @@ sub load_chrom {
     $self->{yscale} = 1;
     $self->{pwidth} = $self->{cwidth}*$self->{xscale};
     $self->{pheight} = $self->{cheight}*$self->{yscale};
-    $self->{x_offset} = 0;
+    $self->{p_x_offset} = 0;
 
     if (! defined $ic) { # blank canvas
         $self->{x_pixel} = undef;
@@ -1281,16 +1304,18 @@ sub load_chrom {
         $self->draw;
         return;
     }
-    $self->{x} = [ $ic->rt ];
-    $self->{y} = [ $ic->int ];
+    $self->{x} = $ic->rt;
+    $self->{y} = $ic->int;
         
     $self->{type} = 'lines';
 
-    my $description = " m/z:"  . round($ic->{window}->[0],3)
-        . '-' . round($ic->{window}->[1],3);
-    $description .= " | RT:"  . round($self->{x}->[0],2)
-        . '-' . round($self->{x}->[-1],2);
-    $self->{title} = $description;
+    if (defined $ic->{window}) {
+        my $description = " m/z:"  . round($ic->{window}->[0],3)
+            . '-' . round($ic->{window}->[1],3);
+        $description .= " | RT:"  . round($self->{x}->[0],2)
+            . '-' . round($self->{x}->[-1],2);
+        $self->{title} = $description;
+    }
 
     $self->{xlab} = 'retention time (s)';
     $self->{ylab} = 'ion current';
@@ -1314,6 +1339,8 @@ sub load_data {
     $self->calc_used;
     $self->calc_axes;
     $self->calc_coords;
+
+    $self->draw();
     
 }
 

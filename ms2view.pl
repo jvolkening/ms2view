@@ -85,6 +85,7 @@ use Data::Dumper;
 
 use lib $FindBin::Bin;
 use MassCanvas;
+use Heatbar;
 use MS::Parser::MzML;
 use MS::Parser::PepXML;
 use MS::PepInfo qw/calc_fragments/;
@@ -109,15 +110,22 @@ my %extract_functions = (
 );
 my $zoom_mode = 0;
 
-my $mzml_file = $ARGV[0];
-my $pepxml_file = $ARGV[1];
-my $curr_scan_index;
+my $fn_raw;
+my $fn_ids;
+my $fn_hardklor;
+
+GetOptions(
+    'raw=s'      => \$fn_raw,
+    'ids=s'      => \$fn_ids,
+    'hardklor=s' => \$fn_hardklor,
+);
+
 my $parser = MS::Parser::MzML->new;
 my $pep_p  = MS::Parser::PepXML->new();
 
-my $ms1_canvas;
-my $ms2_canvas;
-my $xic_canvas;
+my $main_canvas;
+my $tic_canvas;
+my $other_canvas;
 my $list;
 my $ms1_hid;
 my $xic_lid;
@@ -127,15 +135,15 @@ my %charges;
 # initialize GUI
 $gobjs->{mw} = _build_ui();
 
-if (defined $mzml_file) {
-    $parser->load( $mzml_file );
-    $curr_scan_index = $parser->first_spectrum_index()
-        if (! defined $curr_scan_index);
-    my $scan = $parser->fetch_record('spectrum' => $curr_scan_index);
+if (defined $fn_raw) {
+    $parser->load( $fn_raw );
+    my $scan = $parser->fetch_by_index('spectrum' => 0);
     load_scan( $scan );
+    my $tic = MS::Parser::MzML::Chromatogram->new(type => 'tic', raw => $parser);
+    $tic_canvas->load_chrom($tic);
 }
-if (defined $pepxml_file) {
-    load_list( $pepxml_file );
+if (defined $fn_ids) {
+    load_list( $fn_ids );
 }
 Gtk2->main;
 
@@ -145,6 +153,16 @@ Gtk2->main;
 #----------------------------------------------------------------------------#
 # SUBROUTINES
 #----------------------------------------------------------------------------#
+
+sub cb_click {
+
+    my ($i,$val) = @_;
+    my $idx = $parser->find_by_time($val => 1);
+    my $scan = $parser->fetch_by_index('spectrum' => $idx);
+    $tic_canvas->{title} = "clicked $val";
+    load_scan($scan);
+
+}
 
 sub load_list {
 
@@ -258,7 +276,7 @@ sub _return_framework {
     $t_btn_prev->signal_connect( 'clicked' => \&change_spectrum, 'prev' );
     $t_btn_next->signal_connect( 'clicked' => \&change_spectrum, 'next' );
     $t_btn_last->signal_connect( 'clicked' => \&change_spectrum, 'last' );
-    $t_btn_go->signal_connect(   'clicked' => sub {change_spectrum($t_btn_go, 'by_id',
+    $t_btn_go->signal_connect(   'clicked' => sub {change_spectrum($t_btn_go, 'by_idx',
         $t_entry->get_text);} );
     $t_entry->signal_connect( 'key-release-event' => sub {
         if ($_[1]->keyval == 65293) {
@@ -283,15 +301,23 @@ sub _return_framework {
 
 
     # create sidebar
-    my $hbox_main = Gtk2::HBox->new(FALSE,0);
-    my $layout = Gtk2::Table->new(2,5,FALSE);
+    my $hpaned = Gtk2::HPaned->new();
 
-    $ms2_canvas = MassCanvas->new();
-    $ms1_canvas = MassCanvas->new();
-    $xic_canvas = MassCanvas->new();
-    $layout->attach($ms2_canvas,0,4,0,1,['expand','fill'],['expand','fill'],2,2);
-    $layout->attach($ms1_canvas,0,4,1,2,['expand','fill'],['expand','fill'],2,2);
-    $layout->attach($xic_canvas,4,5,0,1,['expand','fill'],['expand','fill'],2,2);
+    $main_canvas  = MassCanvas->new();
+    $tic_canvas   = MassCanvas->new();
+    $other_canvas = MassCanvas->new();
+
+    $main_canvas->set_size_request(600,400);
+
+    $tic_canvas->{cb_click} = \&cb_click;
+    $tic_canvas->set_size_request(600,200);
+
+    my $vbox_left = Gtk2::VBox->new();
+    $vbox_left->pack_start($main_canvas, TRUE, TRUE, 0);
+    $vbox_left->pack_start($tic_canvas, FALSE, TRUE, 0);
+    $hpaned->pack1($vbox_left, TRUE, FALSE);
+
+    $other_canvas->set_size_request(200, 200);
 
     # create list
     $list = Gtk2::SimpleList->new(
@@ -301,18 +327,22 @@ sub _return_framework {
     $list->signal_connect('row_activated' => sub {
         my ($l, $path, $col) = @_;
         my $row_ref = $l->get_row_data_from_path($path);
-        my $scan = $parser->fetch_record('spectrum' => $row_ref->[0]);
+        my $scan = $parser->fetch_by_id('spectrum' => $row_ref->[0]);
         load_scan($scan);
         annotate($scan, $row_ref->[1]);
-        $curr_scan_index = $row_ref->[0];
     });
     my $sw = Gtk2::ScrolledWindow->new(undef,undef);
     $sw->set_policy('never','always');
     $sw->add($list);
-    $sw->set_size_request(200,-1);
-    $layout->attach($sw,4,5,1,2,['fill'],['fill'],2,2);
+    $sw->set_size_request(200, 400);
 
-    $vbox->pack_start($layout,TRUE,TRUE,0);
+
+    my $vbox_right = Gtk2::VBox->new();
+    $vbox_right->pack_start($other_canvas, TRUE, TRUE, 0);
+    $vbox_right->pack_start($sw, TRUE, TRUE, 0);
+    $hpaned->pack2($vbox_right, TRUE, FALSE);
+
+    $vbox->pack_end($hpaned, TRUE, TRUE, 0);
 
     #create statusbar
     my $status_bar = Gtk2::Statusbar->new;
@@ -335,59 +365,47 @@ sub load_scan {
 
     my ($scan) = @_;
 
-    $ms1_canvas->remove_shading($ms1_hid) if (defined $ms1_hid);
-    $xic_canvas->remove_vline($xic_lid) if (defined $xic_lid);
+    $main_canvas->remove_shading($ms1_hid) if (defined $ms1_hid);
+    $other_canvas->remove_vline($xic_lid) if (defined $xic_lid);
     if ($scan->ms_level > 1) {
-        $ms2_canvas->load_spectrum($scan);
-        my $pre = $parser->fetch_record('spectrum' => $scan->precursor->{scan_id});
+        $main_canvas->load_spectrum($scan);
+        my $pre = $parser->fetch_by_id('spectrum' => $scan->precursor->{scan_id});
         if (defined $pre) {
-            $ms1_canvas->load_spectrum($pre);
+            $other_canvas->load_spectrum($pre);
             my $l = $scan->precursor->{iso_lower};
             my $r = $scan->precursor->{iso_upper};
             my $s = $r - $l;
-            $ms1_canvas->zoom_to($l-$s,$r+$s);
-            $ms1_hid = $ms1_canvas->add_shading( $l, $r, '#0000ff44', 'ms2 isolation' );
-            my $rt = $pre->rt;
-            my $mz = $scan->precursor->{mono_mz};
-            my $ic = $parser->get_xic(
-                mz => $mz,
-                err_ppm => 10,
-                rt => $rt,
-                rt_win => 120,
-            );
-            $ic->{window} = [$mz - $mz*10/1000000, $mz + $mz*10/1000000];
-            $xic_canvas->load_chrom($ic);
-            $xic_lid = $xic_canvas->add_vline($rt,'#ff0000ff');
+            $other_canvas->zoom_to($l-$s,$r+$s);
+            $other_canvas->fit_y();
+            $ms1_hid = $other_canvas->add_shading( $l, $r, '#0000ff44', 'ms2 isolation' );
         }
         else {
-            $ms1_canvas->load_spectrum();
-            $xic_canvas->load_spectrum();
+            $other_canvas->load_spectrum();
         }
     }
     else {
-        $ms1_canvas->load_spectrum($scan);
-        $ms2_canvas->load_spectrum();
-        $xic_canvas->load_spectrum();
+        $main_canvas->load_spectrum($scan);
+        $other_canvas->load_spectrum();
     }
 
 }
 
 sub change_spectrum {
 
-    my ($w,$cmd,$id) = @_;
+    my ($w,$cmd,$idx) = @_;
     if (defined $parser) {
-        my $scan_id;
+        my $scan_idx;
         for ($cmd) {
-            when( /first/ ) { $scan_id = $parser->first_spectrum_index }
-            when( /prev/ )  { $scan_id = $parser->prev_spectrum_index($curr_scan_index) }
-            when( /next/ )  { $scan_id = $parser->next_spectrum_index($curr_scan_index) }
-            when( /last/ )  { $scan_id = $parser->last_spectrum_index }
-            when( /by_id/)  { $scan_id = $id }
+            when( /first/ ) { $scan_idx = 0 }
+            when( /prev/ )  { $scan_idx = $parser->curr_index('spectrum') - 1   }
+            when( /next/ )  { $scan_idx = $parser->curr_index('spectrum') + 1   }
+            when( /last/ )  { $scan_idx = $parser->record_count('spectrum') - 1 }
+            when( /by_idx/) { $scan_idx = $idx }
         }
-        return if (! defined $scan_id);
-        my $scan = $parser->fetch_record('spectrum' => $scan_id );
+        return if (! defined $scan_idx);
+        my $scan = $parser->fetch_by_index( 'spectrum' => $scan_idx );
+        $parser->goto_index('spectrum' => $scan_idx );
         load_scan( $scan );
-        $curr_scan_index = $scan_id;
     }
 
 }
@@ -506,8 +524,8 @@ sub annotate {
 
    my ($scan,$pep) = @_;
 
-   my @mz = $scan->mz;
-   my @int = $scan->int;
+   my $mz  = $scan->mz;
+   my $int = $scan->int;
    #my $cutoff = $int[ int(scalar(@int)*5/6) ]; # roughly Q3
    my $cutoff = 0;
    my $id = $scan->id;
@@ -516,11 +534,11 @@ sub annotate {
    my @frags = calc_fragments($pep, $mods{$id}, $z);
    #print join(" ",@{$_})."\n" for (@frags);
    my %matches;
-   for my $i (0..$#mz) {
-        next if ($int[$i] < $cutoff); # only label major peaks
+   for my $i (0..$#{$mz}) {
+        next if ($int->[$i] < $cutoff); # only label major peaks
         THEO:
         for my $theo (@frags) {
-            my $diff = $mz[$i] - $theo->[0];
+            my $diff = $mz->[$i] - $theo->[0];
             next THEO if (abs($diff) > 0.4);
             next THEO if ( defined $matches{$theo->[0]}
                 && $matches{$theo->[0]}->{diff} < $diff);
@@ -538,7 +556,7 @@ sub annotate {
         }
     }
     my @labels = map {$matches{$_}->{entry}} keys %matches;
-    $ms2_canvas->label(@labels);
+    $main_canvas->label(@labels);
 
     my @chars = split '', $pep;
     my @str = ('C-t', (map {$chars[$_] . $_} 0..$#chars), 'N-t');
@@ -549,6 +567,6 @@ sub annotate {
     }
     my $mod_string = join('; ', (map {$str[$_] . "($mods[$_])"} grep
     {$mods[$_] != 0} 0..$#mods));
-    $ms2_canvas->{subtitle} = "$pep [$mod_string] [$z+]";
+    $main_canvas->{subtitle} = "$pep [$mod_string] [$z+]";
 
 }
