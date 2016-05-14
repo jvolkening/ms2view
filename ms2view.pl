@@ -85,7 +85,6 @@ use Data::Dumper;
 
 use lib $FindBin::Bin;
 use MassCanvas;
-use Heatbar;
 use MS::Parser::MzML;
 use MS::Parser::PepXML;
 use MS::PepInfo qw/calc_fragments/;

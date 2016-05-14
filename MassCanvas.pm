@@ -26,7 +26,6 @@ use Glib::Object::Subclass
         scroll_event         => \&on_scroll,
 	};
 
-my @blue = (0, 0, 1, 1);
 my @label_colors = (
     [0.0, 0.0, 0.0, 1.0],
     [1.0, 0.0, 0.0, 1.0],
@@ -74,15 +73,16 @@ QmCC
 PNG
 
 
-use constant L_MARGIN => 60;
-use constant R_MARGIN => 10;
-use constant B_MARGIN => 40;
-use constant T_MARGIN => 10;
+use constant MARG_L => 60;
+use constant MARG_R => 10;
+use constant MARG_B => 40;
+use constant MARG_T => 10;
 use constant TICK_LEN => 6;
 
-use constant ZI => 1.25;
-use constant ZO => 0.80;
+use constant ZI   => 1.25;
+use constant ZO   => 0.80;
 use constant ZMAX => 10000;
+use constant PI   => 4 * atan2(1, 1);
 
 
 sub _clamp {
@@ -98,26 +98,26 @@ sub zoom_to {
 
     my ($self, $l_mz, $r_mz) = @_;
 
-    $self->{xscale} = ($self->{x}->[-1] - $self->{x}->[0])/($r_mz - $l_mz);
-    $self->{xscale} = _clamp( $self->{xscale}, 1, $self->{xscale} );
+    $self->{scale_x} = ($self->{x}->[-1] - $self->{x}->[0])/($r_mz - $l_mz);
+    $self->{scale_x} = _clamp( $self->{scale_x}, 1, $self->{scale_x} );
 
-    $self->{pwidth} = $self->{cwidth}*$self->{xscale};
-
-    $self->calc_used;
-    $self->calc_axes;
-    $self->calc_coords(1);
-
-    $self->{xscale} = ($self->{x}->[-1] - $self->{x}->[0])/($r_mz - $l_mz);
-    $self->{xscale} = max($self->{xscale},1);
-
-    $self->{pwidth} = $self->{cwidth}*$self->{xscale};
+    $self->{w_surf_p} = $self->{w_view_p}*$self->{scale_x};
 
     $self->calc_used;
     $self->calc_axes;
     $self->calc_coords(1);
 
-    $self->{p_x_offset} = $self->mz2px($l_mz);
-    $self->{p_x_offset} = max(0, $self->{p_x_offset}); 
+    $self->{scale_x} = ($self->{x}->[-1] - $self->{x}->[0])/($r_mz - $l_mz);
+    $self->{scale_x} = max($self->{scale_x},1);
+
+    $self->{w_surf_p} = $self->{w_view_p}*$self->{scale_x};
+
+    $self->calc_used;
+    $self->calc_axes;
+    $self->calc_coords(1);
+
+    $self->{data_off_p} = $self->x2p($l_mz);
+    $self->{data_off_p} = max(0, $self->{data_off_p}); 
 
     $self->draw;
 
@@ -128,36 +128,36 @@ sub on_scroll {
 
     my ($self,$ev) = @_;
 
-    my $xp = $ev->x - L_MARGIN;
+    my $xp = $ev->x - MARG_L;
     my @state = @{ $ev->state };
     my $w_bg = $self->allocation->width;
     my $sf = $ev->direction eq 'up' ? ZI : ZO;
-    my $x_data = $self->px2mz($xp);
+    my $x_data = $self->p2c($xp);
     my $axis = (@state && $state[0] eq 'control-mask') ? 'y' : 'x';
 
     # CTLR+scrollbutton = change y-zoom
     if ($axis eq 'y') {
-        $self->{yscale} *= $sf;
-        $self->{yscale} = _clamp( $self->{yscale}, 0.7, ZMAX);
+        $self->{scale_y} *= $sf;
+        $self->{scale_y} = _clamp( $self->{scale_y}, 0.7, ZMAX);
     }
 
     # scrollbutton alone = change x-zoom
     else {
-        $self->{xscale} *= $sf;
-        $self->{xscale} = max($self->{xscale},1);
+        $self->{scale_x} *= $sf;
+        $self->{scale_x} = max($self->{scale_x},1);
     }
 
-    $self->{pwidth} = $self->{cwidth}*$self->{xscale};
-    $self->{pheight} = $self->{cheight}*$self->{yscale};
+    $self->{w_surf_p} = $self->{w_view_p}*$self->{scale_x};
+    $self->{h_surf_p} = $self->{h_view_p}*$self->{scale_y};
 
     $self->calc_used if ($axis eq 'x');
     $self->calc_axes;
     $self->calc_coords($axis eq 'x');
     
     # center on pointer
-    my $new_x_pixel = int($self->mz2px($x_data)) - $self->{p_x_offset};
-    $self->{p_x_offset} += $new_x_pixel - $xp;
-    $self->{p_x_offset} = max(0, $self->{p_x_offset}); 
+    my $new_x_pixel = int($self->x2p($x_data)) - $self->{data_off_p};
+    $self->{data_off_p} += $new_x_pixel - $xp;
+    $self->{data_off_p} = max(0, $self->{data_off_p}); 
 
     $self->draw;
 }
@@ -171,27 +171,27 @@ sub calc_coords {
     my @y_pixel;
     for (0..$#{ $self->{y_used} }) {
         my $int = $self->{y_used}->[$_];
-        my $y_actual = $self->int2px( $int );
+        my $y_actual = $self->y2p( $int );
         push @y_pixel, $y_actual;
     }
     $self->{y_pixel} = [@y_pixel];
-    my $max = $self->{y_max};
-    my $min = $self->{y_min};
-    my $pw = $self->{cheight} / ($max - $min);
+    my $max = $self->{tick_y_max};
+    my $min = $self->{tick_y_min};
+    my $pw = $self->{h_view_p} / ($max - $min);
     $self->{yplaces} = ceil( log_n($pw, 10) );
 
     if ($do_x) {
         my @x_pixel;
         for (0..$#{ $self->{x_used} }) {
             my $mz  = $self->{x_used}->[$_];
-            my $x_actual = $self->mz2px( $mz );
+            my $x_actual = $self->x2p( $mz );
             push @x_pixel, $x_actual;
         }
         $self->{x_pixel} = [@x_pixel];
         # calculate sig figs to display
-        my $min = $self->{x_minp};
-        my $max = $self->{x_maxp};
-        my $pw = ($self->{pwidth}) / ($max - $min);
+        my $min = $self->{min_x_c};
+        my $max = $self->{max_x_c};
+        my $pw = ($self->{w_surf_p}) / ($max - $min);
         $self->{xplaces} = ceil( log_n($pw, 10) );
     }
 
@@ -201,25 +201,21 @@ sub calc_used {
 
     my ($self) = @_;
 
-    #$self->{x_used} = $self->{x};
-    #$self->{y_used} = $self->{y};
-    #return;
-
     my @x_used;
     my @y_used;
     my $curr_mz  = $self->{x}->[0];
     my $curr_int = $self->{y}->[0];
     my $curr_idx = 0;
-    my $curr_x = $self->mz2px( $curr_mz );
-    my $curr_y = $self->int2px( $curr_int );
+    my $curr_x = $self->x2p( $curr_mz );
+    my $curr_y = $self->y2p( $curr_int );
     my $last_int;
     my $last_mz;
     my $last_idx = 0;
     for (1..$#{ $self->{x} }) {
         my $mz  = $self->{x}->[$_];
         my $int = $self->{y}->[$_];
-        my $x_actual = $self->mz2px( $mz );
-        my $y_actual = $self->int2px( $int );
+        my $x_actual = $self->x2p( $mz );
+        my $y_actual = $self->y2p( $int );
 
         if ($x_actual > $curr_x) {
             push @x_used, $curr_mz;
@@ -296,7 +292,6 @@ sub _anchor_pango {
             $x_actual = $x - $lx/PANGO_SCALE;
         }
         if(/w/) {
-        #when(/^w$/) {
             $x_actual = $x
         }
     }
@@ -346,72 +341,85 @@ sub calc_axes {
 
     my ($self) = @_;
 
-    my $x_ticks = $self->{pwidth}  / 50;
-    my $y_ticks = $self->{pheight} / 14;
+    my $x_ticks = $self->{w_surf_p}  / 50;
+    my $y_ticks = $self->{h_surf_p} / 14;
     $x_ticks = $x_ticks > 2 ? $x_ticks : 2;
     $y_ticks = $y_ticks > 2 ? $y_ticks : 2;
 
     # recalculate axes
     if (defined $self->{x}) {
-        my $min_x = $self->{win_min} // $self->{x}->[0];
-        my $max_x = $self->{win_max} // $self->{x}->[-1];
-        my $min_y = 0;
-        my $max_y = max(@{ $self->{y} })*1.2;
-        my ($min,$max,$space,$digits) = (0,1,1,1);
-        ($min,$max,$space,$digits) = calc_ticks($min_y,$max_y,$y_ticks, 10)
-            if ($max_y > $min_y);
-        $self->{y_min} = $min;
-        $self->{y_max} = $max;
-        $self->{y_space} = $space;
-        $self->{y_digits} = $digits;
-        ($min,$max,$space,$digits) = calc_ticks($min_x,$max_x,$x_ticks, 10);
-        $self->{x_min} = $min;
-        $self->{x_max} = $max;
-        my $span = $max_x - $min_x;
-        $self->{x_minp} = floor($min_x - $span*.05);
-        $self->{x_maxp} = ceil($max_x + $span*.05);
-        $self->{x_space} = $space;
-        $self->{x_digits} = $digits;
+        my $padding = ($self->{x}->[-1] - $self->{x}->[0]) * 0.02;
+        my $min_x_c = $self->{x}->[0] - $padding;
+        my $max_x_c = $self->{x}->[-1] + $padding;
+        my $min_y_c = 0;
+        my $max_y_c = max(@{ $self->{y} })*1.2;
+
+        # calc y ticks
+        my ($tick_min, $tick_max, $space, $digits) = $max_y_c > $min_y_c
+            ? calc_ticks( $min_y_c ,$max_y_c ,$y_ticks, 10)
+            : (0, 1, 1, 1);
+        while ($tick_min < $min_y_c) {
+            $tick_min += $space;
+        }
+        $self->{tick_y_min}    = $tick_min;
+        $self->{tick_y_max}    = $tick_max;
+        $self->{tick_y_space}  = $space;
+        $self->{tick_y_digits} = $digits;
+
+        # calc x ticks
+        ($tick_min, $tick_max, $space, $digits) = $max_x_c > $min_x_c
+            ? calc_ticks( $min_x_c ,$max_x_c ,$x_ticks, 10)
+            : (0, 1, 1, 1);
+        while ($tick_min < $min_x_c) {
+            $tick_min += $space;
+        }
+        $self->{tick_x_min}    = $tick_min;
+        $self->{tick_x_space}  = $space;
+        $self->{tick_x_digits} = $digits;
+
+        $self->{min_x_c} = $min_x_c;
+        $self->{max_x_c} = $max_x_c;
+
 
         #draw y-axis
-        my $h = $self->{cheight} + T_MARGIN + B_MARGIN;
+        my $h = $self->{h_view_p} + MARG_T + MARG_B;
         $self->{surf_yaxis} = Cairo::ImageSurface->create(
-            'argb32', L_MARGIN,  $h);
+            'argb32', MARG_L,  $h);
         my $cr = Cairo::Context->create($self->{surf_yaxis});
         $cr->save;
         $cr->set_line_width(1);
         $cr->set_source_rgba(0.0,0.0,1.0,1.0);
-        my $pw = $self->{pheight} / $self->{y_max};
+        my $pw = $self->{h_surf_p} / $self->{tick_y_max};
 
         my $layout = Pango::Cairo::create_layout($cr);
         $layout->set_alignment('right');
         $layout->set_font_description($self->{font_small});
 
-        my $y = $self->{y_min};
+        my $y = $self->{tick_y_min};
         my $bot;
         my $top;
-        while ($y <= $self->{y_max}) {
-            my $y_actual = int(T_MARGIN + $self->{cheight} - $y*$pw) + 0.5;
-            $bot = $y_actual if ($y == $self->{y_min});
-            last if ($y_actual < T_MARGIN);
+        while ($y <= $self->{tick_y_max}) {
+            my $y_actual = int(MARG_T + $self->{h_view_p} - $y*$pw) + 0.5;
+            $bot = $y_actual if ($y == $self->{tick_y_min});
+            last if ($y_actual < MARG_T);
             $top = $y_actual;
-            $cr->move_to(L_MARGIN,$y_actual);
-            $cr->line_to(L_MARGIN - TICK_LEN, $y_actual);
+            $cr->move_to(MARG_L,$y_actual);
+            $cr->line_to(MARG_L - TICK_LEN, $y_actual);
 
             my $text = sprintf "%.1e",$y;
             $layout->set_text($text);
             Pango::Cairo::update_layout($cr,$layout);
-            _anchor_pango($cr, $layout, 'e', L_MARGIN - TICK_LEN - 2, $y_actual);
+            _anchor_pango($cr, $layout, 'e', MARG_L - TICK_LEN - 2, $y_actual);
 
-            $y += $self->{y_space};
+            $y += $self->{tick_y_space};
         }
         $cr->stroke;
 
         $layout->set_text($self->{ylab});
         Pango::Cairo::update_layout($cr,$layout);
-        $cr->rotate(-90*3.14159/180);
+        $cr->rotate(PI/-2);
         _anchor_pango($cr, $layout, 's',
-            $h - B_MARGIN - $self->{cheight}/2, L_MARGIN);
+            $h - MARG_B - $self->{h_view_p}/2, MARG_L);
         $cr->restore;
     }
 
@@ -431,7 +439,7 @@ sub index_at {
 
     my ($self, $xc) = @_;
 
-    $xc += $self->{p_x_offset};
+    $xc += $self->{data_off_p};
     my $i = $self->find_nearest($xc);
 
     return $self->{xmap}->{$i};
@@ -442,13 +450,13 @@ sub closest_point {
 
     my ($self, $xc, $yc) = @_;
 
-    $xc += $self->{p_x_offset};
+    $xc += $self->{data_off_p};
 
     #calculate view window
     my $best_i;
     my $best_d;
 
-    my $i = $self->find_nearest($self->{p_x_offset}) - 1;
+    my $i = $self->find_nearest($self->{data_off_p}) - 1;
     $i = 0 if ($i < 0);
     for ($i..$#{$self->{x_pixel}}) {
         my $xp = $self->{x_pixel}->[$_];
@@ -458,7 +466,7 @@ sub closest_point {
             $best_d = $dist;
             $best_i = $_;
         }
-        last if ($xp > $self->{p_x_offset} + $self->{cwidth});
+        last if ($xp > $self->{data_off_p} + $self->{w_view_p});
     }
     return $best_i;
 
@@ -467,7 +475,7 @@ sub closest_point {
 sub on_click {
 
     my ($self,$ev) = @_;
-    my ($px,$py) = ($ev->x - L_MARGIN, $ev->y - T_MARGIN);
+    my ($px,$py) = ($ev->x - MARG_L, $ev->y - MARG_T);
     my @state = @{ $ev->state };
 
     return if (! $self->{inside});
@@ -503,14 +511,14 @@ sub on_click {
 sub on_release {
 
     my ($self,$ev) = @_;
-    my $px = $ev->x - L_MARGIN;
+    my $px = $ev->x - MARG_L;
 
     if ($ev->button == 1) { #left button for dragging
         if (defined $self->{left_drag}) {
             my $min_y;
             my $max_i;
-            my $l = $self->{left_drag}->[0] - 1 + $self->{p_x_offset};
-            my $r = $self->{left_drag}->[1] + 1 + $self->{p_x_offset};
+            my $l = $self->{left_drag}->[0] - 1 + $self->{data_off_p};
+            my $r = $self->{left_drag}->[1] + 1 + $self->{data_off_p};
             for (0..$#{ $self->{x_pixel} }) {
                 my $x  = $self->{x_pixel}->[$_];
                 next if ($x <= $l);
@@ -543,52 +551,51 @@ sub on_release {
 
 }
 
-sub px2mz {
+sub p2c {
 
     my ($self,$px) = @_;
-    my $mw = ($self->{x_maxp} - $self->{x_minp}) / $self->{pwidth};
-    return ($px + $self->{p_x_offset}) * $mw + $self->{x_minp};
+    my $mw = ($self->{max_x_c} - $self->{min_x_c}) / $self->{w_surf_p};
+    return ($px + $self->{data_off_p}) * $mw + $self->{min_x_c};
 
 }
 
-sub mz2px {
+sub x2p {
     
     my ($self,$mz) = @_;
-    my $pw = $self->{pwidth} / ($self->{x_maxp} - $self->{x_minp});
-    #return floor(($mz - $self->{x_minp})*$pw) + 0.5;
-    return round(($mz - $self->{x_minp})*$pw,0) + 0.5;
+    my $pw = $self->{w_surf_p} / ($self->{max_x_c} - $self->{min_x_c});
+    return round(($mz - $self->{min_x_c})*$pw,0) + 0.5;
 
 }
 
-sub int2px {
+sub y2p {
 
     my ($self,$int) = @_;
-    my $pw = $self->{pheight} / $self->{y_max};
-    return floor($self->{cheight} - $int*$pw) + 0.5;
+    my $pw = $self->{h_surf_p} / $self->{tick_y_max};
+    return floor($self->{h_view_p} - $int*$pw) + 0.5;
 
 }
 
-sub px2int {
+sub p2y {
 
     my ($self,$py) = @_;
-    my $mw = $self->{y_max} / $self->{pheight};
-    return ($self->{cheight} - $py) * $mw;
+    my $mw = $self->{tick_y_max} / $self->{h_surf_p};
+    return ($self->{h_view_p} - $py) * $mw;
 
 }
 
 sub on_motion {
 
     my ($self, $ev) = @_;
-    my ($xp, $yp) = ($ev->x - L_MARGIN, $ev->y - T_MARGIN);
+    my ($xp, $yp) = ($ev->x - MARG_L, $ev->y - MARG_T);
 
     my $ha = $self->allocation()->height;
     my $wa = $self->allocation()->width;
 
     # check if we are entering or leaving plot area
     if ( $xp < 0
-      || $xp > $self->{cwidth}
+      || $xp > $self->{w_view_p}
       || $yp < 0
-      || $yp > $self->{cheight}
+      || $yp > $self->{h_view_p}
     ) {
         $self->window->set_cursor($self->{old_cursor})
             if ($self->{inside});
@@ -606,11 +613,10 @@ sub on_motion {
     my $x_data;
     my $y_data;
     if ($self->{inside}) {
-        $x_data = $self->px2mz($xp);
+        $x_data = $self->p2c($xp);
         $x_data = round($x_data,$self->{xplaces});
-        $y_data = $self->px2int($yp);
+        $y_data = $self->p2y($yp);
         $y_data = sprintf("%.1e", $y_data);
-        #$y_data = round($y_data,$self->{yplaces});
 
         $self->{cx} = $xp;
         $self->{cy} = $yp;
@@ -659,10 +665,10 @@ sub on_motion {
 
         elsif ($self->{right_drag}) {
             if (defined $self->{last_x}) {
-                $self->{p_x_offset} += $self->{last_x} - $xp;
-                my $max = $self->{pwidth} - ($self->{cwidth});
-                $self->{p_x_offset} = $max if ($self->{p_x_offset} > $max);
-                $self->{p_x_offset} = 0 if ($self->{p_x_offset} < 0);
+                $self->{data_off_p} += $self->{last_x} - $xp;
+                my $max = $self->{w_surf_p} - ($self->{w_view_p});
+                $self->{data_off_p} = $max if ($self->{data_off_p} > $max);
+                $self->{data_off_p} = 0 if ($self->{data_off_p} < 0);
             
             }
             $self->draw();
@@ -684,14 +690,14 @@ sub calc_ticks {
 
     # Heckbert method
 
-    my ($start,$end,$n_ticks,$base) = @_;
-    $base = $base // 10;
+    my ($start, $end, $n_ticks, $base) = @_;
+    $base //= 10;
     my $range = nice_num($end - $start, 0, $base);
     my $space = nice_num($range/($n_ticks-1),1, $base);
     my $min = floor($start/$space)*$space;
     my $max = ceil($end/$space)*$space;
-    my $digits = max( -floor(log_n($space,$base)),0);
-    return ($min,$max,$space,$digits);
+    my $digits = max(-floor(log_n($space,$base)),0);
+    return ($min, $max, $space, $digits);
 
 }
 
@@ -759,9 +765,9 @@ sub draw {
     my $h_bg = $alloc->height;
 
     $self->{surf_lbl} =
-        Cairo::ImageSurface->create('argb32', $self->{cwidth},  $self->{cheight}+30);
+        Cairo::ImageSurface->create('argb32', $self->{w_view_p},  $self->{h_view_p}+30);
     $self->{surf_data} =
-        Cairo::ImageSurface->create('argb32', $self->{cwidth}, $self->{cheight}+30);
+        Cairo::ImageSurface->create('argb32', $self->{w_view_p}, $self->{h_view_p}+30);
     $self->{surf_bg} =
         Cairo::ImageSurface->create('argb32',$w_bg, $h_bg);
 	my $cr_lbl  = Cairo::Context->create($self->{surf_lbl});
@@ -772,8 +778,6 @@ sub draw {
 
     if (defined $self->{x_pixel}) { 
 
-        #my @xs = @{ $self->{x_pixel} };
-        #my @ys = @{ $self->{y_pixel} };
         my $xref = $self->{x_pixel};
         my $yref = $self->{y_pixel};
 
@@ -784,8 +788,8 @@ sub draw {
         $layout->set_font_description($self->{font_small});
         $layout->set_text($self->{xlab});
         Pango::Cairo::update_layout($cr_bg,$layout);
-        _anchor_pango($cr_bg, $layout, 'n', $self->{cwidth}/2 + L_MARGIN,
-            $self->{cheight} + T_MARGIN + 20);
+        _anchor_pango($cr_bg, $layout, 'n', $self->{w_view_p}/2 + MARG_L,
+            $self->{h_view_p} + MARG_T + 20);
         $cr_bg->restore;
 
         #prepare to draw data
@@ -803,11 +807,11 @@ sub draw {
 
             my ($l_mz,$r_mz,$color,$label) = @{ $self->{hilites}->{$_} };
             my @rgba = map {hex($_)/255 } unpack 'xa2a2a2a2', $color;
-            my $l_px = $self->mz2px($l_mz) - $self->{p_x_offset};
-            my $r_px = $self->mz2px($r_mz) - $self->{p_x_offset};
+            my $l_px = $self->x2p($l_mz) - $self->{data_off_p};
+            my $r_px = $self->x2p($r_mz) - $self->{data_off_p};
             $cr_data->save;
             $cr_data->set_source_rgba(@rgba);
-            $cr_data->rectangle($l_px,0,$r_px - $l_px+1,$self->{cheight});
+            $cr_data->rectangle($l_px,0,$r_px - $l_px+1,$self->{h_view_p});
             $cr_data->fill;
             $cr_data->restore;
             if (defined $label) {
@@ -829,11 +833,11 @@ sub draw {
 
             my ($mz,$color,$label) = @{ $self->{vlines}->{$_} };
             my @rgba = map {hex($_)/255 } unpack 'xa2a2a2a2', $color;
-            my $px = $self->mz2px($mz) - $self->{p_x_offset};
+            my $px = $self->x2p($mz) - $self->{data_off_p};
             $cr_data->save;
             $cr_data->set_source_rgba(@rgba);
             $cr_data->move_to($px,0);
-            $cr_data->line_to($px,$self->{cheight});
+            $cr_data->line_to($px,$self->{h_view_p});
             $cr_data->stroke;
             $cr_data->restore;
             if (defined $label) {
@@ -849,33 +853,29 @@ sub draw {
         }
 
         #draw x-axis
-        my $pw = $self->{pwidth}
-            / ($self->{x_maxp} - $self->{x_minp});
+        my $pw = $self->{w_surf_p}
+            / ($self->{max_x_c} - $self->{min_x_c});
 
-        # find starting x
-        my $mz = $self->{x_minp} + ceil( ($self->px2mz(0)
-            - $self->{x_minp})/$self->{x_space})*$self->{x_space};
 
         $layout = Pango::Cairo::create_layout($cr_data);
         $layout->set_font_description($self->{font_small});
-        while ($mz <= $self->{x_maxp}) {
-            my $xp = $self->mz2px( $mz ) - $self->{p_x_offset};
-            last if ($xp > $self->{cwidth});
-            #$layout->set_text( sprintf "%.$self->{x_digits}f", $mz );
-            $layout->set_text( $mz );
-            $mz += $self->{x_space};
+        my $c = $self->{scale_x_min};
+        while ($c <= $self->{max_x_c}) {
+            my $xp = $self->x2p( $c ) - $self->{data_off_p};
+            last if ($xp > $self->{w_view_p});
+            $layout->set_text( $c );
+            $c += $self->{tick_x_space};
             my ($lw,$lh) = $layout->get_pixel_size;
             next if ($xp - $lw/2 < 0);
-            last if ($xp + $lw/2 > $self->{cwidth});
+            last if ($xp + $lw/2 > $self->{w_view_p});
 
-            $cr_data->move_to($xp,$self->{cheight});
-            $cr_data->line_to($xp,$self->{cheight} + TICK_LEN);
+            $cr_data->move_to($xp,$self->{h_view_p});
+            $cr_data->line_to($xp,$self->{h_view_p} + TICK_LEN);
 
             Pango::Cairo::update_layout($cr_data,$layout);
             _anchor_pango($cr_data, $layout, 'n',
-                $xp, $self->{cheight} + TICK_LEN + 2);
+                $xp, $self->{h_view_p} + TICK_LEN + 2);
 
-            #$mz += $self->{x_space};
         }
         $cr_data->stroke;
         $cr_data->restore;
@@ -887,18 +887,17 @@ sub draw {
 
         my $last_point;
 
-        my $left = $self->{p_x_offset};
+        my $left = $self->{data_off_p};
 
         #semi-binary search
         my $i = $self->find_nearest($left) - 1;
         $i = 0 if ($i < 0);
         
-        #for ($start_i..$end_i) {
         while ($i <= $#{$xref}) {
-            my $xp = $xref->[$i] - $self->{p_x_offset};
+            my $xp = $xref->[$i] - $self->{data_off_p};
             my $yp = $yref->[$i];
             if ($self->{type} eq 'sticks') {
-                $cr_data->move_to($xp, $self->{cheight});
+                $cr_data->move_to($xp, $self->{h_view_p});
                 $cr_data->line_to($xp, $yp);
             }
             elsif ($self->{type} eq 'lines') {
@@ -912,7 +911,7 @@ sub draw {
                 $last_point = [$xp, $yp];
 
             }
-            last if ($xp > $self->{cwidth});
+            last if ($xp > $self->{w_view_p});
             if (defined $self->{labeled}->{ $self->{xmap}->{$i} }) {
                 my $y = $yp;
                 my $x = $xp;
@@ -931,7 +930,6 @@ sub draw {
                     $cr_lbl->set_line_width(3);
                     $cr_lbl->set_source_rgba(1.0, 1.0, 1.0, 1.0);
                     $cr_lbl->stroke_preserve;
-                    #$cr_lbl->set_source_rgba(0.0, 0.0, 0.0, 1.0);
                     $cr_lbl->set_source_rgba(@{ $label_colors[$lab->[1]] });
                     $cr_lbl->fill;
                     $cr_lbl->restore;
@@ -984,43 +982,43 @@ sub expose {
 
     # draw data surface
     $cr->save;
-    $cr->rectangle(L_MARGIN, T_MARGIN, $w - R_MARGIN - L_MARGIN, $h - B_MARGIN - T_MARGIN + 30);
+    $cr->rectangle(MARG_L, MARG_T, $w - MARG_R - MARG_L, $h - MARG_B - MARG_T + 30);
     $cr->clip;
-    $cr->set_source_surface($self->{surf_data},L_MARGIN ,T_MARGIN);
+    $cr->set_source_surface($self->{surf_data},MARG_L ,MARG_T);
     $cr->paint;
     $cr->restore;
 
     # draw data labels
     $cr->save;
-    $cr->rectangle(L_MARGIN, T_MARGIN, $w - R_MARGIN - L_MARGIN, $h - B_MARGIN - T_MARGIN + 30);
+    $cr->rectangle(MARG_L, MARG_T, $w - MARG_R - MARG_L, $h - MARG_B - MARG_T + 30);
     $cr->clip;
-    $cr->set_source_surface($self->{surf_lbl},L_MARGIN ,T_MARGIN);
+    $cr->set_source_surface($self->{surf_lbl},MARG_L ,MARG_T);
     $cr->paint;
     $cr->restore;
 
     # draw header
     if (defined $self->{title}) {
         $cr->save;
-        $cr->rectangle(L_MARGIN, T_MARGIN, $w - R_MARGIN - L_MARGIN, $h - B_MARGIN - T_MARGIN + 30);
+        $cr->rectangle(MARG_L, MARG_T, $w - MARG_R - MARG_L, $h - MARG_B - MARG_T + 30);
         $cr->clip;
         $cr->set_source_rgba(@{$label_colors[2]});
         my $layout = Pango::Cairo::create_layout($cr);
         $layout->set_font_description($self->{font_small});
         $layout->set_text($self->{title});
         Pango::Cairo::update_layout($cr,$layout);
-        _anchor_pango($cr, $layout, 'nw', L_MARGIN + 3, T_MARGIN + 3);
+        _anchor_pango($cr, $layout, 'nw', MARG_L + 3, MARG_T + 3);
         $cr->restore;
     }
     if (defined $self->{subtitle}) {
         $cr->save;
-        $cr->rectangle(L_MARGIN, T_MARGIN, $w - R_MARGIN - L_MARGIN, $h - B_MARGIN - T_MARGIN + 30);
+        $cr->rectangle(MARG_L, MARG_T, $w - MARG_R - MARG_L, $h - MARG_B - MARG_T + 30);
         $cr->clip;
         $cr->set_source_rgba(@{$label_colors[1]});
         my $layout = Pango::Cairo::create_layout($cr);
         $layout->set_font_description($self->{font_small});
         $layout->set_text($self->{subtitle});
         Pango::Cairo::update_layout($cr,$layout);
-        _anchor_pango($cr, $layout, 'nw', L_MARGIN + 3, T_MARGIN + 16);
+        _anchor_pango($cr, $layout, 'nw', MARG_L + 3, MARG_T + 16);
         $cr->restore;
     }
 
@@ -1028,17 +1026,17 @@ sub expose {
     # draw mouse coordinates
     if (defined $self->{cx}) {
         $cr->save;
-        $cr->set_source_surface($self->{surf_coords},$self->{cx}+4+L_MARGIN,$self->{cy}-27+T_MARGIN);
+        $cr->set_source_surface($self->{surf_coords},$self->{cx}+4+MARG_L,$self->{cy}-27+MARG_T);
         $cr->paint;
         $cr->restore;
     }
     
     # draw selectbox
     if (defined $self->{left_drag}) {
-        my ($l,$r) = map {$_+L_MARGIN} @{ $self->{left_drag} };
+        my ($l,$r) = map {$_+MARG_L} @{ $self->{left_drag} };
         $cr->save;
         $cr->set_source_rgba(.3,.3,.3,.3);
-        $cr->rectangle($l,T_MARGIN,$r - $l+1,$h - T_MARGIN - B_MARGIN);
+        $cr->rectangle($l,MARG_T,$r - $l+1,$h - MARG_T - MARG_B);
         $cr->fill;
         $cr->restore;
     }
@@ -1050,11 +1048,11 @@ sub expose {
         my $mz_x1 = $self->{x_used}->[ $self->{ruler}->[0] ];
         my $mz_x2 = $self->{x_used}->[ $self->{ruler}->[1] ];
         my $x1 = $self->{x_pixel}->[ $self->{ruler}->[0] ]
-            - $self->{p_x_offset} + L_MARGIN;
+            - $self->{data_off_p} + MARG_L;
         my $x2 = $self->{x_pixel}->[ $self->{ruler}->[1] ]
-            - $self->{p_x_offset} + L_MARGIN;
-        my $y1 = $self->{y_pixel}->[ $self->{ruler}->[0] ] + T_MARGIN;
-        my $y2 = $self->{y_pixel}->[ $self->{ruler}->[1] ] + T_MARGIN;
+            - $self->{data_off_p} + MARG_L;
+        my $y1 = $self->{y_pixel}->[ $self->{ruler}->[0] ] + MARG_T;
+        my $y2 = $self->{y_pixel}->[ $self->{ruler}->[1] ] + MARG_T;
         
         my $y3 = min($y1,$y2) - 10;
         $cr->save;
@@ -1092,8 +1090,8 @@ sub expose {
     # draw plot border
     $cr->save;
     $cr->set_line_width(1);
-    $cr->set_source_rgba( @blue );
-    $cr->rectangle(L_MARGIN + 0.5, T_MARGIN + 0.5, $w - R_MARGIN - L_MARGIN, $h - T_MARGIN - B_MARGIN);
+    $cr->set_source_rgba( @{$label_colors[2]} );
+    $cr->rectangle(MARG_L + 0.5, MARG_T + 0.5, $w - MARG_R - MARG_L, $h - MARG_T - MARG_B);
     $cr->stroke;
     $cr->restore;
 
@@ -1106,26 +1104,25 @@ sub INIT_INSTANCE {
 
 	my ($self) = @_;
 
-    $self->{p_x_offset} = 0;
-    $self->{x_min} = 0;
-    $self->{x_max} = 1;
-    $self->{x_minp} = 0;
-    $self->{x_maxp} = 1;
-    $self->{y_min} = 0;
-    $self->{y_max} = 1;
-    $self->{x_space} = 1;
-    $self->{y_space} = 1;
-    $self->{x_digits} = 1;
-    $self->{y_digits} = 1;
+    $self->{data_off_p}  = 0; # origin x offset of data surface, in px
+    $self->{scale_x_min} = 0; # starting coord of x scale (not always shown)
+    $self->{min_x_c} = 0; # lowest x value, padded
+    $self->{max_x_c} = 1; # lowest y value, padded
+    $self->{tick_y_min} = 0;  
+    $self->{tick_y_max} = 1;
+    $self->{tick_x_space} = 1;
+    $self->{tick_y_space} = 1;
+    $self->{tick_x_digits} = 1;
+    $self->{tick_y_digits} = 1;
     $self->{ruler} = [];
-    $self->{pwidth} = 1;
-    $self->{pheight} = 1;
-    $self->{cwidth} = 10;
-    $self->{cheight} = 10;
+    $self->{w_surf_p} = 1;
+    $self->{h_surf_p} = 1;
+    $self->{w_view_p} = 10;
+    $self->{h_view_p} = 10;
     $self->{xlab} = 'x';
     $self->{ylab} = 'y';
-    $self->{xscale} = 1;
-    $self->{yscale} = 1;
+    $self->{scale_x} = 1;
+    $self->{scale_y} = 1;
     $self->{hilites} = {};
     $self->{hilite_iter} = 0;
     $self->{vlines} = {};
@@ -1142,7 +1139,7 @@ sub INIT_INSTANCE {
     my $alloc = $self->allocation;
     my $w = $alloc->width;
     my $h = $alloc->height;
-    $self->{pwidth} = $w;
+    $self->{w_surf_p} = $w;
 
     # initialize surfaces
     $self->{surf_bg} =
@@ -1179,30 +1176,27 @@ sub INIT_INSTANCE {
     }
     $self->{cursors}->{drag} = Gtk2::Gdk::Cursor->new('hand2');
     $self->{cursor} = $self->{cursors}->{ch_red};
-    $self->set_size_request(40 + L_MARGIN + R_MARGIN,20 + T_MARGIN + B_MARGIN);
+    $self->set_size_request(40 + MARG_L + MARG_R,20 + MARG_T + MARG_B);
 }
 
 sub resize {
 
     my ($self) = @_;
 
-    my $offset;
+    my $offset_c;
     if (defined $self->{x}) {
-        $offset = $self->px2mz(0);
+        $offset_c = $self->p2c(0);
     }
 
     my $alloc = $self->allocation;
     my $w = $alloc->width;
     my $h = $alloc->height;
 
-    my $new_cwidth  = $w - L_MARGIN - R_MARGIN;
-    my $new_cheight = $h - T_MARGIN - B_MARGIN;
-    
-    $self->{cwidth} = $new_cwidth;
-    $self->{cheight} = $new_cheight;
+    $self->{w_view_p} = $w - MARG_L - MARG_R;
+    $self->{h_view_p} = $h - MARG_T - MARG_B;
 
-    $self->{pwidth} = $self->{cwidth}*$self->{xscale};
-    $self->{pheight} = $self->{cheight}*$self->{yscale};
+    $self->{w_surf_p} = $self->{w_view_p}*$self->{scale_x};
+    $self->{h_surf_p} = $self->{h_view_p}*$self->{scale_y};
 
     if (defined $self->{x}) {
 
@@ -1210,7 +1204,7 @@ sub resize {
         $self->calc_axes;
         $self->calc_coords;
 
-        $self->{p_x_offset} = $self->mz2px($offset) - 0.5;
+        $self->{data_off_p} = $self->x2p($offset_c) - 0.5;
 
         $self->draw();
 
@@ -1231,11 +1225,11 @@ sub load_spectrum {
 
     my ($self,$spectrum) = @_;
 
-    $self->{xscale} = 1;
-    $self->{yscale} = 1;
-    $self->{pwidth} = $self->{cwidth}*$self->{xscale};
-    $self->{pheight} = $self->{cheight}*$self->{yscale};
-    $self->{p_x_offset} = 0;
+    $self->{scale_x} = 1;
+    $self->{scale_y} = 1;
+    $self->{w_surf_p} = $self->{w_view_p}*$self->{scale_x};
+    $self->{h_surf_p} = $self->{h_view_p}*$self->{scale_y};
+    $self->{data_off_p} = 0;
 
     if (! defined $spectrum) { # blank canvas
         $self->{x_pixel} = undef;
@@ -1291,16 +1285,16 @@ sub load_chrom {
 
     my ($self,$ic) = @_;
 
-    $self->{xscale} = 1;
-    $self->{yscale} = 1;
-    $self->{pwidth} = $self->{cwidth}*$self->{xscale};
-    $self->{pheight} = $self->{cheight}*$self->{yscale};
-    $self->{p_x_offset} = 0;
+    $self->{scale_x}    = 1;
+    $self->{scale_y}    = 1;
+    $self->{w_surf_p}   = $self->{w_view_p};
+    $self->{h_surf_p}   = $self->{h_view_p};
+    $self->{data_off_p} = 0;
 
     if (! defined $ic) { # blank canvas
         $self->{x_pixel} = undef;
-        $self->{x} = undef;
-        $self->{y} = undef;
+        $self->{x}       = undef;
+        $self->{y}       = undef;
         $self->draw;
         return;
     }
