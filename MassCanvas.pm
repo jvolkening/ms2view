@@ -13,7 +13,7 @@ use List::Util qw/min max any/;
 use POSIX qw/floor ceil/;
 use MIME::Base64 qw/decode_base64/;
 
-use MS::CV qw/:constants/;
+use MS::CV qw/:MS/;
 
 use Glib::Object::Subclass
 	Gtk2::DrawingArea::,
@@ -1241,12 +1241,12 @@ sub load_spectrum {
     }
     $self->{x} = $spectrum->mz;
     $self->{y} = $spectrum->int;
-    $self->{type} = defined $spectrum->{cvParam}->{&CENTROID_SPECTRUM} ? 'sticks' : 'lines';
+    $self->{type} = defined $spectrum->{cvParam}->{&MS_CENTROID_SPECTRUM} ? 'sticks' : 'lines';
 
     my $description = "Scan: " . $spectrum->id;
     $description .= " | MS:"  . $spectrum->ms_level;
     $description .= " | RT:"  . round($spectrum->rt,2) . 's';
-    my $tic = $spectrum->{cvParam}->{&TOTAL_ION_CURRENT}->[0]->{value};
+    my $tic = $spectrum->{cvParam}->{&MS_TOTAL_ION_CURRENT}->[0]->{value};
     my ($base,$exp) = split 'e', $tic;
     $tic = round($base,0);
     if (defined $exp) {
@@ -1266,9 +1266,11 @@ sub load_spectrum {
     $self->{ylab} = 'intensity';
     $self->{labeled} = {};
 
-    my $lower = $spectrum->{scanList}->{scan}->[0]->{scanWindowList}->{scanWindow}->[0]->{cvParam}->{&SCAN_WINDOW_LOWER_LIMIT()}->[0]->{value};
+    my $lower =
+        $spectrum->{scanList}->{scan}->[0]->{scanWindowList}->{scanWindow}->[0]->{cvParam}->{&MS_SCAN_WINDOW_LOWER_LIMIT()}->[0]->{value};
 
-    my $upper = $spectrum->{scanList}->{scan}->[0]->{scanWindowList}->{scanWindow}->[0]->{cvParam}->{&SCAN_WINDOW_UPPER_LIMIT()}->[0]->{value};
+    my $upper =
+        $spectrum->{scanList}->{scan}->[0]->{scanWindowList}->{scanWindow}->[0]->{cvParam}->{&MS_SCAN_WINDOW_UPPER_LIMIT()}->[0]->{value};
 
     $self->{win_min} = $lower;
     $self->{win_max} = $upper;

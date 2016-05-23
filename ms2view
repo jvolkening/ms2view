@@ -85,8 +85,8 @@ use Data::Dumper;
 
 use lib $FindBin::Bin;
 use MassCanvas;
-use MS::Parser::MzML;
-use MS::Parser::PepXML;
+use MS::Reader::MzML;
+use MS::Reader::PepXML;
 use MS::PepInfo qw/calc_fragments/;
 
 # constants
@@ -119,8 +119,8 @@ GetOptions(
     'hardklor=s' => \$fn_hardklor,
 );
 
-my $parser = MS::Parser::MzML->new;
-my $pep_p  = MS::Parser::PepXML->new();
+my $parser = MS::Reader::MzML->new;
+my $pep_p  = MS::Reader::PepXML->new();
 
 my $main_canvas;
 my $tic_canvas;
@@ -136,9 +136,9 @@ $gobjs->{mw} = _build_ui();
 
 if (defined $fn_raw) {
     $parser->load( $fn_raw );
-    my $scan = $parser->fetch_by_index('spectrum' => 0);
+    my $scan = $parser->fetch_record('spectrum' => 0);
     load_scan( $scan );
-    my $tic = MS::Parser::MzML::Chromatogram->new(type => 'tic', raw => $parser);
+    my $tic = MS::Reader::MzML::Chromatogram->new(type => 'tic', raw => $parser);
     $tic_canvas->load_chrom($tic);
 }
 if (defined $fn_ids) {
@@ -157,7 +157,7 @@ sub cb_click {
 
     my ($i,$val) = @_;
     my $idx = $parser->find_by_time($val => 1);
-    my $scan = $parser->fetch_by_index('spectrum' => $idx);
+    my $scan = $parser->fetch_record('spectrum' => $idx);
     $tic_canvas->{title} = "clicked $val";
     load_scan($scan);
 
@@ -326,7 +326,8 @@ sub _return_framework {
     $list->signal_connect('row_activated' => sub {
         my ($l, $path, $col) = @_;
         my $row_ref = $l->get_row_data_from_path($path);
-        my $scan = $parser->fetch_by_id('spectrum' => $row_ref->[0]);
+        my $idx = $parser->get_index_by_id('spectrum' => $row_ref->[0]);
+        my $scan = $parser->fetch_record('spectrum' => $idx);
         load_scan($scan);
         annotate($scan, $row_ref->[1]);
     });
@@ -368,7 +369,7 @@ sub load_scan {
     $other_canvas->remove_vline($xic_lid) if (defined $xic_lid);
     if ($scan->ms_level > 1) {
         $main_canvas->load_spectrum($scan);
-        my $pre = $parser->fetch_by_id('spectrum' => $scan->precursor->{scan_id});
+        my $pre = $parser->fetch_record('spectrum' => $scan->precursor->{scan_id});
         if (defined $pre) {
             $other_canvas->load_spectrum($pre);
             my $l = $scan->precursor->{iso_lower};
@@ -402,8 +403,8 @@ sub change_spectrum {
             when( /by_idx/) { $scan_idx = $idx }
         }
         return if (! defined $scan_idx);
-        my $scan = $parser->fetch_by_index( 'spectrum' => $scan_idx );
-        $parser->goto_index('spectrum' => $scan_idx );
+        my $scan = $parser->fetch_record( 'spectrum' => $scan_idx );
+        $parser->goto('spectrum' => $scan_idx );
         load_scan( $scan );
     }
 
