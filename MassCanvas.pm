@@ -137,6 +137,7 @@ sub zoom_to {
     $self->calc_used;
     $self->calc_axes;
     $self->calc_coords(1);
+    $self->calc_labels;
 
     $self->{data_off_p} = $self->x2p($l_mz);
     $self->{data_off_p} = max(0, $self->{data_off_p}); 
@@ -199,7 +200,7 @@ sub zoom_x {
     $self->calc_used;
     $self->calc_axes;
     $self->calc_coords(1);
-    #$self->calc_labels;
+    $self->calc_labels;
 
     my $new_x_pixel = $self->x2p($x_data) - $self->{data_off_p};
     $self->{data_off_p} += $new_x_pixel - $xp;
@@ -304,6 +305,45 @@ sub calc_used {
 
     $self->{x_used} = [@x_used];
     $self->{y_used} = [@y_used];
+
+}
+
+sub calc_labels {
+
+    my ($self) = @_;
+    # calculate peak labels
+
+    my @x_used = @{$self->{x_used}};
+    my @y_used = @{$self->{y_used}};
+    my @order = sort {$y_used[$b] <=> $y_used[$a]} 0..$#y_used;
+    my $max = $y_used[ $order[0] ];
+    my @boxes;
+    $self->{labeled}->{$_}->[0] = undef
+        for (grep {defined $self->{labeled}->{$_}->[0]->[2]}
+        keys %{$self->{labeled}});
+    PEAK:
+    for (0..$self->{max_label}-1) {
+        last if ($_ > $#order);
+        my $i = $order[$_];
+        my $x = $x_used[$i];
+        my $y = $y_used[$i];
+        last if ($y < $max * $self->{min_ratio});
+
+        my $lab = sig_fig($x, 6);
+        $x = $self->x2p($x);
+        my $w   = length($lab) * $self->{em}->[0];
+        my $x1 = $x - $w/2;
+        my $x2 = $x + $w/2;
+        for (0..$_-1) {
+            my $j = $order[$_];
+            my $p = $self->x2p( $x_used[$j] );
+            next PEAK if ($p >= $x1 && $p <= $x2);
+        }
+        $self->{labeled}->{
+                $self->{xmap}->{$i}
+            }->[0] = [$lab,0,1];
+
+    }
 
 }
 
@@ -1167,6 +1207,9 @@ sub INIT_INSTANCE {
     $self->{hilite_iter} = 0;
     $self->{vlines} = {};
     $self->{vline_iter} = 0;
+    $self->{idx_select} = 0;
+    $self->{max_label} = 10;
+    $self->{min_ratio} = 0.1;
     $self->{titles} = [];
     $self->{title_colors} = [];
     $self->{font_small}
@@ -1196,6 +1239,15 @@ sub INIT_INSTANCE {
         Cairo::ImageSurface->create('argb32',$w, $h);
     $self->{surf_coords} =
         Cairo::ImageSurface->create('argb32',100,40);
+
+    # estimate em
+    my $cr_lbl  = Cairo::Context->create($self->{surf_lbl});
+    my $layout = Pango::Cairo::create_layout($cr_lbl);
+    $layout->set_font_description($self->{font_small});
+    $layout->set_text('M');
+    Pango::Cairo::update_layout($cr_lbl,$layout);
+    my ($lx,$ly) = $layout->get_size;
+    $self->{em} = [$lx/PANGO_SCALE, $ly/PANGO_SCALE];
 
     # load cursors
     my $arrow = Gtk2::Gdk::Cursor->new('left_ptr');
@@ -1247,6 +1299,7 @@ sub resize {
         $self->calc_used;
         $self->calc_axes;
         $self->calc_coords;
+        $self->calc_labels;
 
         $self->{data_off_p} = $self->x2p($offset_c);
 
@@ -1263,6 +1316,14 @@ sub round {
     return (int($val*10**$places+0.5))/10**$places;
 }
 
+sub sig_fig {
+    my ($val, $figs) = @_;
+    return $val if ($val == int($val));
+
+    my $dec = $figs - length(int($val));
+    return round( $val, $dec );
+}
+
 sub set_type {
 
     my ($self, $type) = @_;
@@ -1270,6 +1331,8 @@ sub set_type {
     return;
 
 }
+
+sub fit_y {}
 
 sub clear {
 
@@ -1396,6 +1459,7 @@ sub load_data {
     $self->calc_used;
     $self->calc_axes;
     $self->calc_coords;
+    $self->calc_labels;
 
     $self->draw();
     

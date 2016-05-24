@@ -369,7 +369,9 @@ sub load_scan {
     $other_canvas->remove_vline($xic_lid) if (defined $xic_lid);
     if ($scan->ms_level > 1) {
         $main_canvas->load_spectrum($scan);
-        my $pre = $parser->fetch_record('spectrum' => $scan->precursor->{scan_id});
+        my $pre_id = $scan->precursor->{scan_id};
+        my $pre_idx = $parser->get_index_by_id('spectrum' => $pre_id);
+        my $pre = $parser->fetch_record('spectrum' => $pre_idx);
         if (defined $pre) {
             $other_canvas->load_spectrum($pre);
             my $l = $scan->precursor->{iso_lower};
