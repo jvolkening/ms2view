@@ -311,10 +311,10 @@ sub _return_framework {
     $tic_canvas->{cb_click} = \&cb_click;
     $tic_canvas->set_size_request(600,200);
 
-    my $vbox_left = Gtk2::VBox->new();
-    $vbox_left->pack_start($main_canvas, TRUE, TRUE, 0);
-    $vbox_left->pack_start($tic_canvas, FALSE, TRUE, 0);
-    $hpaned->pack1($vbox_left, TRUE, FALSE);
+    my $vpaned = Gtk2::VPaned->new();
+    $vpaned->pack1($main_canvas, TRUE, TRUE);
+    $vpaned->pack2($tic_canvas, FALSE, TRUE);
+    $hpaned->pack1($vpaned, TRUE, FALSE);
 
     $other_canvas->set_size_request(200, 200);
 

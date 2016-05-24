@@ -23,6 +23,7 @@ use Glib::Object::Subclass
         motion_notify_event  => \&on_motion,
         button_press_event   => \&on_click,
         button_release_event => \&on_release,
+        key_press_event      => \&_on_key_press,
         scroll_event         => \&on_scroll,
 	};
 
@@ -144,44 +145,70 @@ sub zoom_to {
 
 }
 
-
 sub on_scroll {
 
     my ($self,$ev) = @_;
 
     my $xp = $ev->x - MARG_L;
     my @state = @{ $ev->state };
-    my $w_bg = $self->allocation->width;
     my $sf = $ev->direction eq 'up' ? ZI : ZO;
-    my $x_data = $self->p2c($xp);
+    my $x_data = $self->p2x($xp + $self->{data_off_p});
     my $axis = (@state && $state[0] eq 'control-mask') ? 'y' : 'x';
 
     # CTLR+scrollbutton = change y-zoom
     if ($axis eq 'y') {
-        $self->{scale_y} *= $sf;
-        $self->{scale_y} = _clamp( $self->{scale_y}, 0.7, ZMAX);
+        $self->zoom_y($sf);
     }
 
     # scrollbutton alone = change x-zoom
     else {
-        $self->{scale_x} *= $sf;
-        $self->{scale_x} = max($self->{scale_x},1);
+        $self->zoom_x($sf, $x_data);
     }
+
+}
+
+sub zoom_y {
+
+    my ($self, $sf) = @_;
+
+    $self->{scale_y} *= $sf;
+    $self->{scale_y} = _clamp( $self->{scale_y}, 0.7, ZMAX);
 
     $self->{w_surf_p} = $self->{w_view_p}*$self->{scale_x};
     $self->{h_surf_p} = $self->{h_view_p}*$self->{scale_y};
 
-    $self->calc_used if ($axis eq 'x');
     $self->calc_axes;
-    $self->calc_coords($axis eq 'x');
-    
-    # center on pointer
-    my $new_x_pixel = int($self->x2p($x_data)) - $self->{data_off_p};
+    $self->calc_coords(0);
+
+    $self->draw;
+
+}
+
+sub zoom_x {
+
+    my ($self, $sf, $x_data) = @_;
+
+    my $xp = $self->x2p($x_data) - $self->{data_off_p};
+
+    $self->{scale_x} *= $sf;
+    $self->{scale_x} = max($self->{scale_x},1);
+
+    $self->{w_surf_p} = $self->{w_view_p}*$self->{scale_x};
+    $self->{h_surf_p} = $self->{h_view_p}*$self->{scale_y};
+
+    $self->calc_used;
+    $self->calc_axes;
+    $self->calc_coords(1);
+    #$self->calc_labels;
+
+    my $new_x_pixel = $self->x2p($x_data) - $self->{data_off_p};
     $self->{data_off_p} += $new_x_pixel - $xp;
     $self->{data_off_p} = max(0, $self->{data_off_p}); 
 
     $self->draw;
+
 }
+
 
 sub calc_coords {
 
@@ -205,7 +232,7 @@ sub calc_coords {
         my @x_pixel;
         for (0..$#{ $self->{x_used} }) {
             my $mz  = $self->{x_used}->[$_];
-            my $x_actual = $self->x2p( $mz );
+            my $x_actual = $self->x2p( $mz ) + 0.5;
             push @x_pixel, $x_actual;
         }
         $self->{x_pixel} = [@x_pixel];
@@ -227,16 +254,16 @@ sub calc_used {
     my $curr_mz  = $self->{x}->[0];
     my $curr_int = $self->{y}->[0];
     my $curr_idx = 0;
-    my $curr_x = $self->x2p( $curr_mz );
-    my $curr_y = $self->y2p( $curr_int );
+    my $curr_x = $self->x2p( $curr_mz ) + 0.5;
+    my $curr_y = $self->y2p( $curr_int ) + 0.5;
     my $last_int;
     my $last_mz;
     my $last_idx = 0;
     for (1..$#{ $self->{x} }) {
         my $mz  = $self->{x}->[$_];
         my $int = $self->{y}->[$_];
-        my $x_actual = $self->x2p( $mz );
-        my $y_actual = $self->y2p( $int );
+        my $x_actual = $self->x2p( $mz ) + 0.5;
+        my $y_actual = $self->y2p( $int) + 0.5 ;
 
         if ($x_actual > $curr_x) {
             push @x_used, $curr_mz;
@@ -499,6 +526,8 @@ sub on_click {
     my ($px,$py) = ($ev->x - MARG_L, $ev->y - MARG_T);
     my @state = @{ $ev->state };
 
+    $self->grab_focus;
+
     return if (! $self->{inside});
 
     if ($ev->button == 1) { #left button for dragging
@@ -513,11 +542,8 @@ sub on_click {
             $self->queue_draw;
         }
         else {
-            $self->{select} = $px;
             my $i = $self->index_at($px);
-            my $this = $self->{x}->[$i];
-            $self->{idx_select} = $i;
-            $self->{cb_click}->($i,$this);
+            $self->set_selection($i);
         }
 
     }
@@ -572,11 +598,11 @@ sub on_release {
 
 }
 
-sub p2c {
+sub p2x {
 
     my ($self,$px) = @_;
     my $mw = ($self->{max_x_c} - $self->{min_x_c}) / $self->{w_surf_p};
-    return ($px + $self->{data_off_p}) * $mw + $self->{min_x_c};
+    return $px * $mw + $self->{min_x_c};
 
 }
 
@@ -584,7 +610,7 @@ sub x2p {
     
     my ($self,$mz) = @_;
     my $pw = $self->{w_surf_p} / ($self->{max_x_c} - $self->{min_x_c});
-    return round(($mz - $self->{min_x_c})*$pw,0) + 0.5;
+    return round(($mz - $self->{min_x_c})*$pw,0);
 
 }
 
@@ -634,7 +660,7 @@ sub on_motion {
     my $x_data;
     my $y_data;
     if ($self->{inside}) {
-        $x_data = $self->p2c($xp);
+        $x_data = $self->p2x($xp + $self->{data_off_p});
         $x_data = round($x_data,$self->{xplaces});
         $y_data = $self->p2y($yp);
         $y_data = sprintf("%.1e", $y_data);
@@ -854,7 +880,7 @@ sub draw {
 
             my ($mz,$color,$label) = @{ $self->{vlines}->{$_} };
             my @rgba = map {hex($_)/255 } unpack 'xa2a2a2a2', $color;
-            my $px = $self->x2p($mz) - $self->{data_off_p};
+            my $px = $self->x2p($mz) - $self->{data_off_p} + 0.5;
             $cr_data->save;
             $cr_data->set_source_rgba(@rgba);
             $cr_data->move_to($px,0);
@@ -882,7 +908,7 @@ sub draw {
         $layout->set_font_description($self->{font_small});
         my $c = $self->{scale_x_min};
         while ($c <= $self->{max_x_c}) {
-            my $xp = $self->x2p( $c ) - $self->{data_off_p};
+            my $xp = $self->x2p( $c ) - $self->{data_off_p} + 0.5;
             last if ($xp > $self->{w_view_p});
             $layout->set_text( $c );
             $c += $self->{tick_x_space};
@@ -983,9 +1009,12 @@ sub expose {
     $cr->rectangle(0,0,$w,$h);
     $cr->set_source_rgba(1,1,1,1);
     $cr->fill;
+
+    # draw outline depending on focus status
+    my @col = $self->has_focus ? (1,0,0,1) : (0,0,0,1);
     $cr->set_line_width(1);
-    $cr->rectangle(0.5,0.5,$w-1,$h-1);
-    $cr->set_source_rgba(0,0,0,1);
+    $cr->rectangle(0.5, 0.5, $w-1, $h-1);
+    $cr->set_source_rgba(@col);
     $cr->stroke;
     $cr->restore;
 
@@ -1149,6 +1178,8 @@ sub INIT_INSTANCE {
     $self->add_events('GDK_ENTER_NOTIFY_MASK');
     $self->add_events('GDK_LEAVE_NOTIFY_MASK');
 
+    $self->set_can_focus(TRUE);
+
     my $alloc = $self->allocation;
     my $w = $alloc->width;
     my $h = $alloc->height;
@@ -1198,7 +1229,7 @@ sub resize {
 
     my $offset_c;
     if (defined $self->{x}) {
-        $offset_c = $self->p2c(0);
+        $offset_c = $self->p2x($self->{data_off_p});
     }
 
     my $alloc = $self->allocation;
@@ -1217,7 +1248,7 @@ sub resize {
         $self->calc_axes;
         $self->calc_coords;
 
-        $self->{data_off_p} = $self->x2p($offset_c) - 0.5;
+        $self->{data_off_p} = $self->x2p($offset_c);
 
         $self->draw();
 
@@ -1243,7 +1274,9 @@ sub set_type {
 sub clear {
 
     my ($self) = @_;
-    $self->{x} = undef;
+    $self->{x}       = undef;
+    $self->{x_pixel} = undef;
+    $self->{x_used}  = undef;
     $self->draw();
 
 }
@@ -1329,6 +1362,8 @@ sub load_data {
 
     my ($self, $x, $y, $type) = @_;
 
+    $self->clear();
+
     $type //= 'lines';
 
     #if (! $add) {
@@ -1364,6 +1399,83 @@ sub load_data {
 
     $self->draw();
     
+}
+
+sub _on_key_press {
+
+    my ($self, $ev) = @_;
+    my $val = $ev->keyval;
+    my $key = $val > 31 && $val < 127 ? chr($val)
+            : $val == 65361           ? 'arrow-left'
+            : $val == 65362           ? 'arrow-up'
+            : $val == 65363           ? 'arrow-right'
+            : $val == 65364           ? 'arrow-down'
+            : '';
+
+    if (   $key =~ /^(?: h | arrow-left )$/x  ) {
+        $self->move_selection(-1);
+    }
+    elsif ($key =~ /^(?: l | arrow-right )$/x ) {
+        $self->move_selection(1);
+    }
+    elsif ($key =~ /^(?: k | arrow-up )$/x    ) { }
+    elsif ($key =~ /^(?: j | arrow-down )$/x  ) { }
+    elsif ($key eq 'H') {
+        $self->zoom_x( ZO, $self->{x}->[ $self->{idx_select} ] );
+    } 
+    elsif ($key eq 'L') {
+        $self->zoom_x( ZI, $self->{x}->[ $self->{idx_select} ] );
+    } 
+    elsif ($key eq 'K') {
+        $self->zoom_y( ZI );
+    } 
+    elsif ($key eq 'J') {
+        $self->zoom_y( ZO );
+    } 
+    elsif ($key eq 'g') {
+        if (defined $self->{num_buff}) {
+            my $x = $self->{num_buff};
+            my $w = ($self->{x}->[-1] - $self->{x}->[0])/$self->{scale_x};
+            $self->zoom_to($x - $w/2, $x + $w/2);
+        }
+    } 
+
+    # track numbers entered
+    if ($key =~ /\d/) {
+        $self->{num_buff} .= $key;
+    }
+    else {
+        $self->{num_buff} = undef;
+    }
+
+    return TRUE;
+
+}
+
+sub move_selection {
+
+    my ($self, $steps) = @_;
+
+    my $to = $self->{idx_select} + $steps;
+    return if ($to < 0 || $to > $#{ $self->{x} });
+    $self->set_selection( $to );
+
+}
+
+sub set_selection {
+
+    my ($self, $idx) = @_;
+
+    my $val = $self->{x}->[$idx];
+    $self->{idx_select} = $idx;
+    
+    $self->remove_vline( $self->{select} )
+        if (defined $self->{select});
+    $self->{select} = $self->add_vline(
+        $val, '#0000ffaa', undef );
+        
+    $self->{cb_click}->($idx,$val) if (defined $self->{cb_click});
+
 }
 
 1;
