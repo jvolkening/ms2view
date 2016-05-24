@@ -26,12 +26,6 @@ use Glib::Object::Subclass
         scroll_event         => \&on_scroll,
 	};
 
-my @label_colors = (
-    [0.0, 0.0, 0.0, 1.0],
-    [1.0, 0.0, 0.0, 1.0],
-    [0.0, 0.0, 1.0, 1.0],
-);
-
 my $icon_B2B_16 = <<PNG;
 iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlz
 AAAN1wAADdcBQiibeAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAADASURB
@@ -78,13 +72,40 @@ use constant MARG_R => 10;
 use constant MARG_B => 40;
 use constant MARG_T => 10;
 use constant TICK_LEN => 6;
+use constant X_PAD_FRAC => 0.02;
+use constant Y_PAD_FRAC => 1.2;
 
 use constant ZI   => 1.25;
 use constant ZO   => 0.80;
 use constant ZMAX => 10000;
 use constant PI   => 4 * atan2(1, 1);
 
+use constant BLUE   => [0, 0, 1, 1];
+use constant RED    => [1, 0, 0, 1];
+use constant GREEN  => [0, 1, 0, 1];
+use constant BLACK  => [0, 0, 0, 1];
+use constant WHITE  => [1, 1, 1, 1];
 
+my @label_colors = (
+    BLACK,
+    RED,
+    BLUE,
+);
+
+
+sub zoom_full {
+
+    my ($self) = @_;
+
+    $self->{scale_x}    = 1;
+    $self->{scale_y}    = 1;
+    $self->{w_surf_p}   = $self->{w_view_p};
+    $self->{h_surf_p}   = $self->{h_view_p};
+    $self->{data_off_p} = 0;
+
+    return;
+
+}
 sub _clamp {
 
     my ($val, $lower, $upper) = @_;
@@ -997,31 +1018,21 @@ sub expose {
     $cr->restore;
 
     # draw header
-    if (defined $self->{title}) {
+    for (0..$#{ $self->{titles} }) {
+        my $title = $self->{titles}->[$_];
+        next if (! defined $title);
+        my $color = $self->{title_colors}->[$_] // BLACK;
         $cr->save;
         $cr->rectangle(MARG_L, MARG_T, $w - MARG_R - MARG_L, $h - MARG_B - MARG_T + 30);
         $cr->clip;
-        $cr->set_source_rgba(@{$label_colors[2]});
+        $cr->set_source_rgba(@$color);
         my $layout = Pango::Cairo::create_layout($cr);
         $layout->set_font_description($self->{font_small});
-        $layout->set_text($self->{title});
+        $layout->set_text($title);
         Pango::Cairo::update_layout($cr,$layout);
-        _anchor_pango($cr, $layout, 'nw', MARG_L + 3, MARG_T + 3);
+        _anchor_pango($cr, $layout, 'nw', MARG_L + 3, MARG_T + 3 + 16*$_);
         $cr->restore;
     }
-    if (defined $self->{subtitle}) {
-        $cr->save;
-        $cr->rectangle(MARG_L, MARG_T, $w - MARG_R - MARG_L, $h - MARG_B - MARG_T + 30);
-        $cr->clip;
-        $cr->set_source_rgba(@{$label_colors[1]});
-        my $layout = Pango::Cairo::create_layout($cr);
-        $layout->set_font_description($self->{font_small});
-        $layout->set_text($self->{subtitle});
-        Pango::Cairo::update_layout($cr,$layout);
-        _anchor_pango($cr, $layout, 'nw', MARG_L + 3, MARG_T + 16);
-        $cr->restore;
-    }
-
 
     # draw mouse coordinates
     if (defined $self->{cx}) {
@@ -1127,6 +1138,8 @@ sub INIT_INSTANCE {
     $self->{hilite_iter} = 0;
     $self->{vlines} = {};
     $self->{vline_iter} = 0;
+    $self->{titles} = [];
+    $self->{title_colors} = [];
     $self->{font_small}
         = Pango::FontDescription->from_string('Sans 8');
 
@@ -1219,119 +1232,132 @@ sub round {
     return (int($val*10**$places+0.5))/10**$places;
 }
 
-# load MzML::Scan object (MS1 scan, MS2 scan, etc)
+sub set_type {
 
+    my ($self, $type) = @_;
+    $self->{type} = $type;
+    return;
+
+}
+
+sub clear {
+
+    my ($self) = @_;
+    $self->{x} = undef;
+    $self->draw();
+
+}
+
+# load MzML::Scan object (MS1 scan, MS2 scan, etc)
 sub load_spectrum {
 
-    my ($self,$spectrum) = @_;
+    my ($self, $spectrum, $add) = @_;
 
-    $self->{scale_x} = 1;
-    $self->{scale_y} = 1;
-    $self->{w_surf_p} = $self->{w_view_p}*$self->{scale_x};
-    $self->{h_surf_p} = $self->{h_view_p}*$self->{scale_y};
-    $self->{data_off_p} = 0;
-
-    if (! defined $spectrum) { # blank canvas
-        $self->{x_pixel} = undef;
-        $self->{title} = undef;
-        $self->{x} = undef;
-        $self->{y} = undef;
-        $self->draw();
-        return;
-    }
-    $self->{x} = $spectrum->mz;
-    $self->{y} = $spectrum->int;
-    $self->{type} = defined $spectrum->{cvParam}->{&MS_CENTROID_SPECTRUM} ? 'sticks' : 'lines';
+    my $type = defined $spectrum->param( MS_CENTROID_SPECTRUM )
+        ? 'sticks'
+        : 'lines';
 
     my $description = "Scan: " . $spectrum->id;
     $description .= " | MS:"  . $spectrum->ms_level;
     $description .= " | RT:"  . round($spectrum->rt,2) . 's';
-    my $tic = $spectrum->{cvParam}->{&MS_TOTAL_ION_CURRENT}->[0]->{value};
+    my $tic = $spectrum->param(MS_TOTAL_ION_CURRENT);
     my ($base,$exp) = split 'e', $tic;
     $tic = round($base,0);
     if (defined $exp) {
         $tic = round($base,1) . 'e' . $exp;
     }
     $description .= " | TIC:" . $tic if (defined $tic);
+    my $subtitle = '';
     if ($spectrum->ms_level > 1) {
         my $pre = $spectrum->precursor;
-        $description .= " | PreScan:" . $pre->{scan_id};
-        $description .= " | PreMono:" . round($pre->{mono_mz},4);
-        $description .= " | IsoWin:" . round($pre->{iso_lower},3)
+        $subtitle    .= "PreScan:" . $pre->{scan_id};
+        $subtitle .= " | PreMono:" . round($pre->{mono_mz},4);
+        $subtitle .= " | IsoWin:" . round($pre->{iso_lower},3)
             . '-' . round($pre->{iso_upper},3);
     }
-    $self->{title} = $description;
-    $self->{subtitle} = '';
+    $self->{titles}->[0] = $description;
+    $self->{titles}->[1] = $subtitle;
+    $self->{title_colors}->[0] = BLUE;
+    $self->{title_colors}->[1] = BLUE;
     $self->{xlab} = 'm/z';
     $self->{ylab} = 'intensity';
     $self->{labeled} = {};
 
-    my $lower =
-        $spectrum->{scanList}->{scan}->[0]->{scanWindowList}->{scanWindow}->[0]->{cvParam}->{&MS_SCAN_WINDOW_LOWER_LIMIT()}->[0]->{value};
+    my ($lower, $upper) = @{ $spectrum->scan_window };
 
-    my $upper =
-        $spectrum->{scanList}->{scan}->[0]->{scanWindowList}->{scanWindow}->[0]->{cvParam}->{&MS_SCAN_WINDOW_UPPER_LIMIT()}->[0]->{value};
+    my $x = defined $lower
+        ? [$lower, @{ $spectrum->mz }, $upper]
+        : $spectrum->mz;
+    my $y = defined $lower
+        ? [0, @{ $spectrum->int }, 0]
+        : $spectrum->int;
 
-    $self->{win_min} = $lower;
-    $self->{win_max} = $upper;
-    $self->calc_used;
-    $self->calc_axes;
-    $self->calc_coords;
-
-    $self->draw();
+    $self->load_data( $x, $y, $type);
     
+}
+
+sub set_title {
+
+    my ($self, $idx, $title, $color) = @_;
+    
+    $self->{titles}->[$idx] = $title;
+    $self->{title_colors}->[$idx] = $color // BLUE;
+
 }
 
 # load MzML::IC object (ion chromatogram)
 sub load_chrom {
 
-    my ($self,$ic) = @_;
+    my ($self, $ic, $add) = @_;
 
-    $self->{scale_x}    = 1;
-    $self->{scale_y}    = 1;
-    $self->{w_surf_p}   = $self->{w_view_p};
-    $self->{h_surf_p}   = $self->{h_view_p};
-    $self->{data_off_p} = 0;
-
-    if (! defined $ic) { # blank canvas
-        $self->{x_pixel} = undef;
-        $self->{x}       = undef;
-        $self->{y}       = undef;
-        $self->draw;
-        return;
-    }
-    $self->{x} = $ic->rt;
-    $self->{y} = $ic->int;
-        
-    $self->{type} = 'lines';
-
-    if (defined $ic->{window}) {
-        my $description = " m/z:"  . round($ic->{window}->[0],3)
-            . '-' . round($ic->{window}->[1],3);
-        $description .= " | RT:"  . round($self->{x}->[0],2)
-            . '-' . round($self->{x}->[-1],2);
-        $self->{title} = $description;
+    $self->set_title( 0 => "RT:"  . round($self->{x}->[0], 0)
+        . '-' . round($self->{x}->[-1], 0) );
+    if (defined $ic->window()) {
+        $self->set_title( 1 => " m/z:"  . sig_fig($ic->window()->[0], 5)
+          . '-' . sig_fig($ic->window()->[1], 5) );
     }
 
     $self->{xlab} = 'retention time (s)';
     $self->{ylab} = 'ion current';
-    
-    $self->calc_used;
-    $self->calc_axes;
-    $self->calc_coords;
 
-    $self->draw();
+    $self->load_data( $ic->rt, $ic->int, 'lines' );
 
 }
 
 # load generic data type
 sub load_data {
 
-    my ($self,$x,$y) = @_;
+    my ($self, $x, $y, $type) = @_;
+
+    $type //= 'lines';
+
+    #if (! $add) {
+        #$self->{x} = [];
+        #$self->{y} = [];
+    #}
+
     $self->{x} = $x;
     $self->{y} = $y;
-    $self->{type} = 'lines';
+    #push @{ $self->{x} }, $x;
+    #push @{ $self->{y} }, $y;
+    $self->set_type($type);
 
+    # find data extrema
+    #my $min_cx = min( map {$self->{x}->[$_]->[ 0]} 0..$#{$self->{x}} );
+    #my $max_cx = max( map {$self->{x}->[$_]->[-1]} 0..$#{$self->{x}} );
+    #my $max_cy = max( map {$self->{y}->[$_]->[-1]} 0..$#{$self->{y}} );
+    my $min_cx = $self->{x}->[0];
+    my $max_cx = $self->{x}->[-1];
+    my $max_cy = max @{$self->{y}};
+
+    my $pad_x = ($max_cx - $min_cx) * X_PAD_FRAC;
+
+    $self->{cx_left}  = $min_cx - $pad_x;
+    $self->{cx_right} = $max_cx + $pad_x;
+    $self->{cy_bot}   = 0;
+    $self->{cy_top}   = $max_cy * Y_PAD_FRAC;
+
+    $self->zoom_full;
     $self->calc_used;
     $self->calc_axes;
     $self->calc_coords;
@@ -1339,6 +1365,5 @@ sub load_data {
     $self->draw();
     
 }
-
 
 1;

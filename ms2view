@@ -380,12 +380,12 @@ sub load_scan {
             $ms1_hid = $other_canvas->add_shading( $l, $r, '#0000ff44', 'ms2 isolation' );
         }
         else {
-            $other_canvas->load_spectrum();
+            $other_canvas->clear();
         }
     }
     else {
         $main_canvas->load_spectrum($scan);
-        $other_canvas->load_spectrum();
+        $other_canvas->clear();
     }
 
 }
