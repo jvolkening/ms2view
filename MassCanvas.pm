@@ -523,6 +523,15 @@ sub _euclidean {
 
 }
 
+sub set_peptide {
+
+    my ($self, $seq) = @_;
+    $self->{peptide} = $seq;
+
+    $self->draw();
+
+}
+
 sub index_at {
 
     my ($self, $xc) = @_;
@@ -861,6 +870,73 @@ sub draw {
 	my $cr_data = Cairo::Context->create($self->{surf_data});
 	my $cr_bg   = Cairo::Context->create($self->{surf_bg});
 
+    if (defined $self->{peptide}) {
+
+        my $pep = $self->{peptide};
+
+        my $layout = Pango::Cairo::create_layout($cr_lbl);
+        $layout->set_font_description($self->{font_med});
+        $layout->set_text('M');
+        Pango::Cairo::update_layout($cr_lbl,$layout);
+        my ($lx,$ly) = $layout->get_size;
+        my $em = [$lx/PANGO_SCALE, $ly/PANGO_SCALE];
+
+        my $w = length($pep)*($em->[0]+5);
+        my $h = $em->[1] * 4;
+        warn "pep: $pep $w x $h\n";
+        $self->{surf_pep} =
+            Cairo::ImageSurface->create('argb32',$w, $h);
+        my $cr_pep = Cairo::Context->create($self->{surf_pep});
+        
+        $cr_pep->save;
+        $layout = Pango::Cairo::create_layout($cr_pep);
+        $layout->set_font_description($self->{font_med});
+        my $layout2 = Pango::Cairo::create_layout($cr_pep);
+        $layout2->set_font_description($self->{font_small});
+        my $x = int($em->[0]/2+2.5)+0.5;
+        my $y = $h/2;
+        $cr_pep->set_line_width(1);
+        my @res = split '', $pep;
+        for (0..$#res) {
+
+            my $ib = $_ + 1;
+            my $iy = $#res - $_;
+
+            my $aa = $res[$_];
+            $cr_pep->set_source_rgba(0,0,0,1);
+            $layout->set_text($aa);
+            Pango::Cairo::update_layout($cr_pep, $layout);
+            _anchor_pango($cr_pep, $layout, '',  $x, $y);
+            last if ($_ == $#res);
+            $x += $em->[0]/2+2.5;
+            $cr_pep->move_to($x,$y);
+            $cr_pep->line_to($x,$y-$em->[1]/2-2);
+            $cr_pep->line_to($x+$em->[0]/2 ,$y-$em->[1]/2-7);
+            $cr_pep->set_source_rgba(0,0,1,1);
+            $cr_pep->stroke;
+
+            $layout2->set_markup("y<sub>$iy</sub>");
+            Pango::Cairo::update_layout($cr_pep, $layout2);
+            _anchor_pango($cr_pep, $layout2, 's',  $x+$em->[0]/2+1,
+                $y-$em->[1]/2-8);
+
+            $cr_pep->move_to($x,$y);
+            $cr_pep->line_to($x,$y+$em->[1]/2+2);
+            $cr_pep->line_to($x-$em->[0]/2 ,$y+$em->[1]/2+7);
+            $cr_pep->set_source_rgba(1,0,0,1);
+            $cr_pep->stroke;
+
+            $layout2->set_markup("b<sub>$ib</sub>");
+            Pango::Cairo::update_layout($cr_pep, $layout2);
+            _anchor_pango($cr_pep, $layout2, 'n',  $x-$em->[0]/2-1,
+                $y+$em->[1]/2+8);
+
+            $x += $em->[0]/2+2.5;
+        }
+        $cr_pep->restore;
+        $cr_pep->show_page;
+
+    }
     #calculate view window
 
     if (defined $self->{x_pixel}) { 
@@ -1167,6 +1243,23 @@ sub expose {
 
     }
 
+    # draw peptide
+    if (defined $self->{peptide}) {
+        my $surf = $self->{surf_pep};
+        my $pw = $surf->get_width;
+        my $ph = $surf->get_height;
+        $cr->save;
+        $cr->rectangle($w - MARG_R - $pw - 20, MARG_T + 40, $pw, $ph);
+        $cr->clip;
+        #$cr->set_source_rgba(1,0,0,1);
+        #$cr->fill;
+        $cr->set_source_surface($surf,$w - MARG_R - $pw - 20 ,MARG_T+40);
+        #$cr->set_source_surface($surf,0,0);
+        $cr->paint;
+        $cr->restore;
+    }
+
+
     # draw plot border
     $cr->save;
     $cr->set_line_width(1);
@@ -1214,6 +1307,8 @@ sub INIT_INSTANCE {
     $self->{title_colors} = [];
     $self->{font_small}
         = Pango::FontDescription->from_string('Sans 8');
+    $self->{font_med}
+        = Pango::FontDescription->from_string('Sans 10');
 
     $self->add_events('GDK_BUTTON_PRESS_MASK');
     $self->add_events('GDK_BUTTON_RELEASE_MASK');
@@ -1340,6 +1435,7 @@ sub clear {
     $self->{x}       = undef;
     $self->{x_pixel} = undef;
     $self->{x_used}  = undef;
+    $self->{peptide} = undef;
     $self->draw();
 
 }
@@ -1381,12 +1477,14 @@ sub load_spectrum {
 
     my ($lower, $upper) = @{ $spectrum->scan_window };
 
-    my $x = defined $lower
-        ? [$lower, @{ $spectrum->mz }, $upper]
-        : $spectrum->mz;
-    my $y = defined $lower
-        ? [0, @{ $spectrum->int }, 0]
-        : $spectrum->int;
+    #my $x = defined $lower
+        #? [$lower, @{ $spectrum->mz }, $upper]
+        #: $spectrum->mz;
+    #my $y = defined $lower
+        #? [0, @{ $spectrum->int }, 0]
+        #: $spectrum->int;
+    my $x = $spectrum->mz;
+    my $y = $spectrum->int;
 
     $self->load_data( $x, $y, $type);
     
@@ -1433,6 +1531,7 @@ sub load_data {
         #$self->{x} = [];
         #$self->{y} = [];
     #}
+
 
     $self->{x} = $x;
     $self->{y} = $y;

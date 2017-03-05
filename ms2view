@@ -111,10 +111,12 @@ my $zoom_mode = 0;
 
 my $fn_raw;
 my $fn_ids;
+my $fn_pepxml;
 my $fn_hardklor;
 
 GetOptions(
     'raw=s'      => \$fn_raw,
+    'pepxml=s'   => \$fn_pepxml,
     'ids=s'      => \$fn_ids,
     'hardklor=s' => \$fn_hardklor,
 );
@@ -128,21 +130,24 @@ my $other_canvas;
 my $list;
 my $ms1_hid;
 my $xic_lid;
-my %mods;
-my %charges;
+my @mods;
+my @charges;
 
 # initialize GUI
 $gobjs->{mw} = _build_ui();
 
 if (defined $fn_raw) {
     $parser->load( $fn_raw );
-    my $scan = $parser->fetch_record('spectrum' => 0);
+    my $scan = $parser->fetch_spectrum(0);
     load_scan( $scan );
     my $tic = MS::Reader::MzML::Chromatogram->new(type => 'tic', raw => $parser);
     $tic_canvas->load_chrom($tic);
 }
-if (defined $fn_ids) {
-    load_list( $fn_ids );
+if (defined $fn_pepxml) {
+    load_list( $fn_pepxml );
+}
+elsif (defined $fn_ids) {
+    load_list( $fn_ids, 1 );
 }
 Gtk2->main;
 
@@ -157,7 +162,7 @@ sub cb_click {
 
     my ($i,$val) = @_;
     my $idx = $parser->find_by_time($val => 1);
-    my $scan = $parser->fetch_record('spectrum' => $idx);
+    my $scan = $parser->fetch_spectrum($idx);
     $tic_canvas->{title} = "clicked $val";
     load_scan($scan);
 
@@ -165,18 +170,45 @@ sub cb_click {
 
 sub load_list {
 
-    my ($fn) = @_;
+    my ($fn, $is_tsv) = @_;
     return if (! defined $fn);
-    $pep_p->load($fn);
-    while (my $run = $pep_p->next_run) {
-        while (my $spectrum = $run->next_query) {
-            my $z  = $spectrum->{assumed_charge};
-            my $id = $spectrum->{start_scan};
-            my $pep = $spectrum->top_hit->{peptide};
-            my @mods = $spectrum->mod_delta_array;
-            $mods{$id} = [@mods];
-            $charges{$id} = $z;
+    my %seen;
+    @mods = ();
+    @charges = ();
+    if ($is_tsv) {
+        open my $in, '<', $fn;
+        while (my $line = <$in>) {
+            chomp $line;
+            my (
+                $id,
+                $pre,
+                $pep_mod,
+                $pep,
+                $mz,
+                $score,
+                $n_match,
+                $p,
+                $z,
+                $mod_string,
+            ) = split "\t", $line;
+            my @m = split ',', $mod_string;
+            push @mods, \@m;
+            push @charges, $z;
             push @{$list->{data}}, [$id,$pep];
+        }
+    }
+    else {
+        $pep_p->load($fn);
+        while (my $run = $pep_p->next_run) {
+            while (my $spectrum = $run->next_query) {
+                my $z  = $spectrum->{assumed_charge};
+                my $id = $spectrum->{start_scan};
+                my $pep = $spectrum->top_hit->{peptide};
+                my @m = $spectrum->mod_delta_array;
+                push @mods, \@m;
+                push @charges, $z;
+                push @{$list->{data}}, [$id,$pep];
+            }
         }
     }
 }
@@ -326,10 +358,12 @@ sub _return_framework {
     $list->signal_connect('row_activated' => sub {
         my ($l, $path, $col) = @_;
         my $row_ref = $l->get_row_data_from_path($path);
-        my $idx = $parser->get_index_by_id('spectrum' => $row_ref->[0]);
-        my $scan = $parser->fetch_record('spectrum' => $idx);
+        my $idx = $parser->spectrum_index_by_id( $row_ref->[0] );
+        my $scan = $parser->fetch_spectrum($idx);
         load_scan($scan);
-        annotate($scan, $row_ref->[1]);
+        my $row = ($path->get_indices())[0];
+        warn "R: $row\n";
+        annotate($scan, $row_ref->[1], $row);
     });
     my $sw = Gtk2::ScrolledWindow->new(undef,undef);
     $sw->set_policy('never','always');
@@ -370,8 +404,8 @@ sub load_scan {
     if ($scan->ms_level > 1) {
         $main_canvas->load_spectrum($scan);
         my $pre_id = $scan->precursor->{scan_id};
-        my $pre_idx = $parser->get_index_by_id('spectrum' => $pre_id);
-        my $pre = $parser->fetch_record('spectrum' => $pre_idx);
+        my $pre_idx = $parser->spectrum_index_by_id($pre_id);
+        my $pre = $parser->fetch_spectrum($pre_idx);
         if (defined $pre) {
             $other_canvas->load_spectrum($pre);
             my $l = $scan->precursor->{iso_lower};
@@ -399,14 +433,14 @@ sub change_spectrum {
         my $scan_idx;
         for ($cmd) {
             when( /first/ ) { $scan_idx = 0 }
-            when( /prev/ )  { $scan_idx = $parser->curr_index('spectrum') - 1   }
-            when( /next/ )  { $scan_idx = $parser->curr_index('spectrum') + 1   }
-            when( /last/ )  { $scan_idx = $parser->record_count('spectrum') - 1 }
+            when( /prev/ )  { $scan_idx = $parser->at_spectrum - 1   }
+            when( /next/ )  { $scan_idx = $parser->at_spectrum + 1   }
+            when( /last/ )  { $scan_idx = $parser->n_spectra - 1 }
             when( /by_idx/) { $scan_idx = $idx }
         }
         return if (! defined $scan_idx);
-        my $scan = $parser->fetch_record( 'spectrum' => $scan_idx );
-        $parser->goto('spectrum' => $scan_idx );
+        my $scan = $parser->fetch_spectrum($scan_idx );
+        $parser->goto_spectrum( $scan_idx );
         load_scan( $scan );
     }
 
@@ -524,26 +558,28 @@ sub get_filename {
 
 sub annotate {
 
-   my ($scan,$pep) = @_;
+   my ($scan, $pep, $row) = @_;
 
    my $mz  = $scan->mz;
    my $int = $scan->int;
+   my @sort = sort {$b <=> $a} @$int;
+   #my $cutoff = $sort[49];
    #my $cutoff = $int[ int(scalar(@int)*5/6) ]; # roughly Q3
-   my $cutoff = 0;
+   my $cutoff = 0.;
    my $id = $scan->id;
-   my @mods = @{ $mods{$id} };
-   my $z = $charges{$id};
-   my @frags = calc_fragments($pep, $mods{$id}, $z);
-   #print join(" ",@{$_})."\n" for (@frags);
+   my $mods = $mods[$row];
+   my $z = $charges[$row];
+   my @frags = calc_fragments(uc($pep), $mods, $z);
+   print join(" ",@{$_})."\n" for (@frags);
    my %matches;
    for my $i (0..$#{$mz}) {
         next if ($int->[$i] < $cutoff); # only label major peaks
         THEO:
         for my $theo (@frags) {
             my $diff = $mz->[$i] - $theo->[0];
-            next THEO if (abs($diff) > 0.4);
+            next THEO if (abs($diff) > 0.5);
             next THEO if ( defined $matches{$theo->[0]}
-                && $matches{$theo->[0]}->{diff} < $diff);
+                && $matches{$theo->[0]}->{int} > $int->[$i]);
             my $col_idx = $theo->[1] =~ /^[abc]/ ? 1 : 2;
             my $lab = "$theo->[1]";
             $lab .= "<sub>$theo->[2]</sub>";
@@ -553,22 +589,29 @@ sub annotate {
                 $extra =~ s/[A-Za-z]\K(\d+)/<sub>$1<\/sub>/g;
                 $lab .= $extra;
             }
-            $matches{$theo->[0]}->{diff} = $diff;
+            $matches{$theo->[0]}->{int} = $int->[$i];
             $matches{$theo->[0]}->{entry} = [$i, $lab, $col_idx];
         }
     }
     my @labels = map {$matches{$_}->{entry}} keys %matches;
+    for (@labels) {
+        my ($i, $lab, $col) = @$_;
+        my $m = $mz->[$i];
+        warn "Label $m => $lab\n";
+    }
     $main_canvas->label(@labels);
 
     my @chars = split '', $pep;
     my @str = ('C-t', (map {$chars[$_] . $_} 0..$#chars), 'N-t');
-    for (0..$#mods) {
-        if ($mods[$_] =~ /^[\-\d\.]+$/) {
-            $mods[$_] = sprintf '%.3f', $mods[$_];
+    for (0..$#${mods}) {
+        if ($mods->[$_] =~ /^[\-\d\.]+$/) {
+            $mods->[$_] = sprintf '%.3f', $mods->[$_];
         }
     }
-    my $mod_string = join('; ', (map {$str[$_] . "($mods[$_])"} grep
-    {$mods[$_] != 0} 0..$#mods));
+    my $mod_string = join('; ', (map {$str[$_] . "($mods->[$_])"} grep
+    {$mods->[$_] != 0} 0..$#{$mods}));
     $main_canvas->{subtitle} = "$pep [$mod_string] [$z+]";
+
+    $main_canvas->set_peptide($pep);
 
 }
