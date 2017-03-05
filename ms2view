@@ -4,7 +4,7 @@
 # embedded files
 #############################################################################
 
-package Spector::Embed;
+package ms2view::Embed;
 
 $ui = <<XML;
 <ui>
@@ -64,50 +64,36 @@ PNG
 
 package main;
 
-use v5.10.1;
-
 use strict;
 use warnings;
-no warnings 'experimental';
-use File::Basename qw/basename/;
-use File::Temp qw/tempfile/;
+use 0.512;
+
 use FindBin;
 use Getopt::Long;
 use Gtk2 '-init';
 use Glib qw(TRUE FALSE);
 use Gtk2::SimpleList;
-use List::MoreUtils(qw/uniq any/);
 use List::Util;
-use Memoize qw/memoize flush_cache/;
 use MIME::Base64 qw/decode_base64/;
 use Time::Piece;
-use Data::Dumper;
 
-use lib $FindBin::Bin;
-use MassCanvas;
 use MS::Reader::MzML;
 use MS::Reader::PepXML;
 use MS::PepInfo qw/calc_fragments/;
+
+use lib $FindBin::Bin;
+use MassCanvas;
 
 # constants
 use constant ZI => 1.25;
 use constant ZO => 0.80;
 
 # globals
-my $NAME    = 'Spector';
-my $VERSION = '0.1a';
-my $YEAR    = 2014;
+my $NAME    = 'ms2view';
+my $VERSION = '0.002';
+
 my $gobjs   = {};
-my $cursors = {};
-my $ndf     = {}; # store ndf data and metadata
 my $embedded = get_embedded();
-my $chip_rotation = 0;
-my %extract_functions = (
-    'center' => \&get_value_center,
-    'median' => \&get_value_median,
-    'mean'   => \&get_value_mean,
-);
-my $zoom_mode = 0;
 
 my $fn_raw;
 my $fn_ids;
@@ -259,19 +245,19 @@ sub _return_framework {
         [ "ViewMenu",  undef,            "_View" ],
         [ "HelpMenu",  undef,            "_Help" ],
         # name         stock id           label          accelerator   tooltip      callback
-        [ "Load_I",   'gtk-open',        "_Load image", "<control>O", "Load image", sub{_load_image()}  ],
-        [ "Load_N",   'gtk-open',        "_Load NDF",    undef,       "Load NDF",   sub{ _load_ndf()}   ],
-        [ "Save",      undef,            "_Save .pair",  undef,       "Save",       \&print_pair        ],
+        #[ "Load_I",   'gtk-open',        "_Load image", "<control>O", "Load image", sub{_load_image()}  ],
+        #[ "Load_N",   'gtk-open',        "_Load NDF",    undef,       "Load NDF",   sub{ _load_ndf()}   ],
+        #[ "Save",      undef,            "_Save .pair",  undef,       "Save",       \&print_pair        ],
         [ "Quit",     'gtk-quit',        "_Quit",       "<control>Q", "Quit",       \&clean_quit        ],
-        [ "Grid_M",    undef,            "_Manual grid", undef,       "Manual",     \&manual_grid       ],
-        [ "Grid_A",    undef,            "_Auto grid",   undef,       "Auto",       \&auto_grid         ],
-        [ "Grid_L",    undef,            "_Auto all",    undef,       "Auto All",   \&auto_all          ],
+        #[ "Grid_M",    undef,            "_Manual grid", undef,       "Manual",     \&manual_grid       ],
+        #[ "Grid_A",    undef,            "_Auto grid",   undef,       "Auto",       \&auto_grid         ],
+        #[ "Grid_L",    undef,            "_Auto all",    undef,       "Auto All",   \&auto_all          ],
         [ "About",    'gtk-about',       "_About",       undef,       "About",      \&show_about        ],
         [ "Prefs",    'gtk-preferences', "_Preferences", undef,       "Prefs",      \&edit_prefs        ],
-        [ "Zoom_In",  'gtk-zoom-in',     "_Zoom in",     undef,       "Zoom in",    sub{zoom(undef,ZI)} ],
-        [ "Zoom_Out", 'gtk-zoom-out',    "_Zoom out",    undef,       "Zoom out",   sub{zoom(undef,ZO)} ],
-        [ "Zoom_100", 'gtk-zoom-100',    "_Zoom 100%",   undef,       "Zoom 100%",  sub{zoom(undef,-1)} ],
-        [ "Zoom_Fit", 'gtk-zoom-fit',    "_Zoom to fit", undef,       "Zoom fit",   sub{zoom(undef,0)}  ],
+        #[ "Zoom_In",  'gtk-zoom-in',     "_Zoom in",     undef,       "Zoom in",    sub{zoom(undef,ZI)} ],
+        #[ "Zoom_Out", 'gtk-zoom-out',    "_Zoom out",    undef,       "Zoom out",   sub{zoom(undef,ZO)} ],
+        #[ "Zoom_100", 'gtk-zoom-100',    "_Zoom 100%",   undef,       "Zoom 100%",  sub{zoom(undef,-1)} ],
+        #[ "Zoom_Fit", 'gtk-zoom-fit',    "_Zoom to fit", undef,       "Zoom fit",   sub{zoom(undef,0)}  ],
     );
     my @toggle_actions = (
         [ "Show_Grid", undef,            "_Show grid",      undef,    "Show grid",      \&toggle_grid,      1 ],
@@ -432,11 +418,12 @@ sub change_spectrum {
     if (defined $parser) {
         my $scan_idx;
         for ($cmd) {
-            when( /first/ ) { $scan_idx = 0 }
-            when( /prev/ )  { $scan_idx = $parser->at_spectrum - 1   }
-            when( /next/ )  { $scan_idx = $parser->at_spectrum + 1   }
-            when( /last/ )  { $scan_idx = $parser->n_spectra - 1 }
-            when( /by_idx/) { $scan_idx = $idx }
+            if    ( /first/ ) { $scan_idx = 0 }
+            elsif ( /prev/  ) { $scan_idx = $parser->at_spectrum - 1   }
+            elsif ( /next/  ) { $scan_idx = $parser->at_spectrum + 1   }
+            elsif ( /last/  ) { $scan_idx = $parser->n_spectra - 1 }
+            elsif ( /by_idx/) { $scan_idx = $idx }
+            else              { die "Bad navigation command: $cmd\n" }
         }
         return if (! defined $scan_idx);
         my $scan = $parser->fetch_spectrum($scan_idx );
@@ -446,31 +433,30 @@ sub change_spectrum {
 
 }
 
-sub round {
+#sub round {
+#
+    #my ($val,$places) = @_;
+    #$places = $places // 0;
+    #return (int($val*10**$places+0.5))/10**$places;
+#
+#}
 
-    my ($val,$places) = @_;
-    $places = $places // 0;
-    return (int($val*10**$places+0.5))/10**$places;
-
-}
-
-sub median {
-
-    my @sorted = sort {$a <=> $b} @_;
-    my $mid = int(@sorted/2);
-    return $sorted[$mid] if (@sorted%2);
-    return ($sorted[$mid-1] + $sorted[$mid])/2;
-
-}
+#sub median {
+#
+    #my @sorted = sort {$a <=> $b} @_;
+    #my $mid = int(@sorted/2);
+    #return $sorted[$mid] if (@sorted%2);
+    #return ($sorted[$mid-1] + $sorted[$mid])/2;
+#
+#}
 
 sub show_about {
 
     my $dialog = Gtk2::AboutDialog->new;
     $dialog->set_program_name( $NAME );
     $dialog->set_version( $VERSION );
-    $dialog->set_copyright( chr(169) . " $YEAR Jeremy Volkening" );
-    $dialog->set_comments('gRidderM is a software tool for extracting raw'
-        . ' probe intensities from a set of four millichip images');
+    $dialog->set_copyright( chr(169) . " 2015-" . localtime()->year . " Jeremy Volkening" );
+    $dialog->set_comments('ms2view is a simple view of MS/MS experimental data');
     $dialog->set_authors('Jeremy Volkening');
     $dialog->set_wrap_license(TRUE);
     $dialog->set_license(
@@ -499,12 +485,12 @@ sub get_embedded {
     my $embedded = {};
 
     my %encoded = (
-        B2B_16      => $Spector::Embed::icon_B2B_16,
-        ch_w        => $Spector::Embed::icon_ch_white,
-        ch_g        => $Spector::Embed::icon_ch_green,
+        B2B_16      => $ms2view::Embed::icon_B2B_16,
+        ch_w        => $ms2view::Embed::icon_ch_white,
+        ch_g        => $ms2view::Embed::icon_ch_green,
     );
     my %unencoded = (
-        ui          => $Spector::Embed::ui,
+        ui          => $ms2view::Embed::ui,
     );
 
     for (keys %encoded) {
