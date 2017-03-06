@@ -10,20 +10,25 @@ $ui = <<XML;
 <ui>
   <menubar name="MenuBar">
     <menu name="FileMenu" action="FileMenu">
+      <!--
       <menuitem name="Load_I" action="Load_I" />
       <menuitem name="Load_N" action="Load_N" />
       <menuitem name="Save" action="Save" />
       <separator />
+      -->
       <menuitem name="Quit" action="Quit" />
     </menu>
     <menu name="EditMenu" action="EditMenu">
+      <!--
       <menuitem name="Grid_M" action="Grid_M"/>
       <menuitem name="Grid_A" action="Grid_A"/>
       <menuitem name="Grid_L" action="Grid_L"/>
       <separator />
+      -->
       <menuitem name="Prefs" action="Prefs" />
     </menu>
     <menu name="ViewMenu" action="ViewMenu">
+      <!--
       <menuitem name="Show_Grid" action="Show_Grid"/>
       <menuitem name="HL_Used" action="HL_Used"/>
       <separator />
@@ -31,6 +36,7 @@ $ui = <<XML;
       <menuitem name="Zoom_Out" action="Zoom_Out"/>
       <menuitem name="Zoom_Fit" action="Zoom_Fit"/>
       <menuitem name="Zoom_100" action="Zoom_100"/>
+      -->
     </menu>
     <menu name="HelpMenu" action="HelpMenu">
       <menuitem name="About" action="About"/>
@@ -80,6 +86,7 @@ use Time::Piece;
 use MS::Reader::MzML;
 use MS::Reader::PepXML;
 use MS::PepInfo qw/calc_fragments/;
+use MS::CV qw/:MS/;
 
 use lib $FindBin::Bin;
 use MassCanvas;
@@ -118,12 +125,33 @@ my $ms1_hid;
 my $xic_lid;
 my @mods;
 my @charges;
+my $mz_min;
+my $mz_max;
 
 # initialize GUI
 $gobjs->{mw} = _build_ui();
 
 if (defined $fn_raw) {
+    
     $parser->load( $fn_raw );
+
+    while (my $s = $parser->next_spectrum) {
+
+        my $low  = $s->param(MS_LOWEST_OBSERVED_M_Z);
+        my $high = $s->param(MS_HIGHEST_OBSERVED_M_Z);
+
+        if (! defined $low || ! defined $high) {
+            my $mz = $s->mz;
+            $low  = $mz->[0];
+            $high = $mz->[-1];
+        }
+
+        $mz_min = $low  if (! defined $mz_min || $low  < $mz_min);
+        $mz_max = $high if (! defined $mz_max || $high > $mz_max);
+
+    }
+
+    $parser->goto_spectrum(0);
     my $scan = $parser->fetch_spectrum(0);
     load_scan( $scan );
     my $tic = MS::Reader::MzML::Chromatogram->new(type => 'tic', raw => $parser);
@@ -149,6 +177,7 @@ sub cb_click {
     my ($i,$val) = @_;
     my $idx = $parser->find_by_time($val => 1);
     my $scan = $parser->fetch_spectrum($idx);
+    $parser->goto_spectrum($idx);
     $tic_canvas->{title} = "clicked $val";
     load_scan($scan);
 
@@ -388,6 +417,7 @@ sub load_scan {
     $main_canvas->remove_shading($ms1_hid) if (defined $ms1_hid);
     $other_canvas->remove_vline($xic_lid) if (defined $xic_lid);
     if ($scan->ms_level > 1) {
+        $main_canvas->set_hard_limits(undef, undef);
         $main_canvas->load_spectrum($scan);
         my $pre_id = $scan->precursor->{scan_id};
         my $pre_idx = $parser->spectrum_index_by_id($pre_id);
@@ -406,6 +436,7 @@ sub load_scan {
         }
     }
     else {
+        $main_canvas->set_hard_limits($mz_min, $mz_max);
         $main_canvas->load_spectrum($scan);
         $other_canvas->clear();
     }
@@ -419,8 +450,8 @@ sub change_spectrum {
         my $scan_idx;
         for ($cmd) {
             if    ( /first/ ) { $scan_idx = 0 }
-            elsif ( /prev/  ) { $scan_idx = $parser->at_spectrum - 1   }
-            elsif ( /next/  ) { $scan_idx = $parser->at_spectrum + 1   }
+            elsif ( /prev/  ) { $scan_idx = $parser->curr_spectrum_index - 1 }
+            elsif ( /next/  ) { $scan_idx = $parser->curr_spectrum_index + 1 }
             elsif ( /last/  ) { $scan_idx = $parser->n_spectra - 1 }
             elsif ( /by_idx/) { $scan_idx = $idx }
             else              { die "Bad navigation command: $cmd\n" }
@@ -433,22 +464,6 @@ sub change_spectrum {
 
 }
 
-#sub round {
-#
-    #my ($val,$places) = @_;
-    #$places = $places // 0;
-    #return (int($val*10**$places+0.5))/10**$places;
-#
-#}
-
-#sub median {
-#
-    #my @sorted = sort {$a <=> $b} @_;
-    #my $mid = int(@sorted/2);
-    #return $sorted[$mid] if (@sorted%2);
-    #return ($sorted[$mid-1] + $sorted[$mid])/2;
-#
-#}
 
 sub show_about {
 
