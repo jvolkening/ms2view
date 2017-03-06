@@ -227,7 +227,7 @@ sub calc_coords {
     my $max = $self->{tick_y_max};
     my $min = $self->{tick_y_min};
     my $pw = $self->{h_view_p} / ($max - $min);
-    $self->{yplaces} = ceil( log_n($pw, 10) );
+    $self->{yplaces} = $pw > 0 ? ceil( log_n($pw, 10) ) : 0;
 
     if ($do_x) {
         my @x_pixel;
@@ -241,7 +241,7 @@ sub calc_coords {
         my $min = $self->{min_x_c};
         my $max = $self->{max_x_c};
         my $pw = ($self->{w_surf_p}) / ($max - $min);
-        $self->{xplaces} = ceil( log_n($pw, 10) );
+        $self->{xplaces} = $pw > 0 ? ceil( log_n($pw, 10) ) : 0;
     }
 
 }   
@@ -437,10 +437,10 @@ sub calc_axes {
     # recalculate axes
     if (defined $self->{x}) {
         my $padding = ($self->{x}->[-1] - $self->{x}->[0]) * 0.02;
-        my $min_x_c = $self->{x}->[0] - $padding;
-        my $max_x_c = $self->{x}->[-1] + $padding;
-        my $min_y_c = 0;
-        my $max_y_c = max(@{ $self->{y} })*1.2;
+        my $min_x_c = $self->{min_x_c};
+        my $max_x_c = $self->{max_x_c};
+        my $min_y_c = $self->{min_y_c};
+        my $max_y_c = $self->{max_y_c};
 
         # calc y ticks
         my ($tick_min, $tick_max, $space, $digits) = $max_y_c > $min_y_c
@@ -465,9 +465,8 @@ sub calc_axes {
         $self->{tick_x_space}  = $space;
         $self->{tick_x_digits} = $digits;
 
-        $self->{min_x_c} = $min_x_c;
-        $self->{max_x_c} = $max_x_c;
-
+        #$self->{min_x_c} = $min_x_c;
+        #$self->{max_x_c} = $max_x_c;
 
         #draw y-axis
         my $h = $self->{h_view_p} + MARG_T + MARG_B;
@@ -1053,7 +1052,7 @@ sub draw {
         my $left = $self->{data_off_p};
 
         #semi-binary search
-        my $i = $self->find_nearest($left) - 1;
+        my $i = ($self->find_nearest($left) // 0) - 1;
         $i = 0 if ($i < 0);
         
         while ($i <= $#{$xref}) {
@@ -1427,6 +1426,14 @@ sub set_type {
 
 }
 
+sub set_hard_limits {
+
+    my ($self, $min, $max) = @_;
+    $self->{hard_min} = $min;
+    $self->{hard_max} = $max;
+
+}
+
 sub fit_y {}
 
 sub clear {
@@ -1475,14 +1482,6 @@ sub load_spectrum {
     $self->{ylab} = 'intensity';
     $self->{labeled} = {};
 
-    my ($lower, $upper) = @{ $spectrum->scan_window };
-
-    #my $x = defined $lower
-        #? [$lower, @{ $spectrum->mz }, $upper]
-        #: $spectrum->mz;
-    #my $y = defined $lower
-        #? [0, @{ $spectrum->int }, 0]
-        #: $spectrum->int;
     my $x = $spectrum->mz;
     my $y = $spectrum->int;
 
@@ -1543,16 +1542,16 @@ sub load_data {
     #my $min_cx = min( map {$self->{x}->[$_]->[ 0]} 0..$#{$self->{x}} );
     #my $max_cx = max( map {$self->{x}->[$_]->[-1]} 0..$#{$self->{x}} );
     #my $max_cy = max( map {$self->{y}->[$_]->[-1]} 0..$#{$self->{y}} );
-    my $min_cx = $self->{x}->[0];
-    my $max_cx = $self->{x}->[-1];
+    my $min_cx = $self->{hard_min} // $self->{x}->[0];
+    my $max_cx = $self->{hard_max} // $self->{x}->[-1];
     my $max_cy = max @{$self->{y}};
 
     my $pad_x = ($max_cx - $min_cx) * X_PAD_FRAC;
 
-    $self->{cx_left}  = $min_cx - $pad_x;
-    $self->{cx_right} = $max_cx + $pad_x;
-    $self->{cy_bot}   = 0;
-    $self->{cy_top}   = $max_cy * Y_PAD_FRAC;
+    $self->{min_x_c} = $min_cx - $pad_x;
+    $self->{max_x_c} = $max_cx + $pad_x;
+    $self->{min_y_c} = 0;
+    $self->{max_y_c} = $max_cy * Y_PAD_FRAC;
 
     $self->zoom_full;
     $self->calc_used;
@@ -1631,12 +1630,12 @@ sub set_selection {
 
     my $val = $self->{x}->[$idx];
     $self->{idx_select} = $idx;
-    
+
     $self->remove_vline( $self->{select} )
         if (defined $self->{select});
     $self->{select} = $self->add_vline(
         $val, '#0000ffaa', undef );
-        
+    
     $self->{cb_click}->($idx,$val) if (defined $self->{cb_click});
 
 }
