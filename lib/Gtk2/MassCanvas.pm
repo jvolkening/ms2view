@@ -1,9 +1,9 @@
-package MassCanvas;
+package Gtk2::MassCanvas;
 
 use warnings;
 use strict;
 
-use 5.10.1;
+use 5.012;
 
 use Glib qw/TRUE FALSE/;
 use Gtk2;
