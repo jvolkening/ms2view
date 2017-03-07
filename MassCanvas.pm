@@ -80,6 +80,7 @@ use constant ZI   => 1.25;
 use constant ZO   => 0.80;
 use constant ZMAX => 10000;
 use constant PI   => 4 * atan2(1, 1);
+use constant FLOAT_TOL => 0.00000001;
 
 use constant BLUE   => [0, 0, 1, 1];
 use constant RED    => [1, 0, 0, 1];
@@ -120,14 +121,14 @@ sub zoom_to {
 
     my ($self, $l_mz, $r_mz) = @_;
 
-    $self->{scale_x} = ($self->{x}->[-1] - $self->{x}->[0])/($r_mz - $l_mz);
-    $self->{scale_x} = _clamp( $self->{scale_x}, 1, $self->{scale_x} );
+    #$self->{scale_x} = ($self->{x}->[-1] - $self->{x}->[0])/($r_mz - $l_mz);
+    #$self->{scale_x} = _clamp( $self->{scale_x}, 1, $self->{scale_x} );
 
-    $self->{w_surf_p} = $self->{w_view_p}*$self->{scale_x};
+    #$self->{w_surf_p} = $self->{w_view_p}*$self->{scale_x};
 
-    $self->calc_used;
-    $self->calc_axes;
-    $self->calc_coords(1);
+    #$self->calc_used;
+    #$self->calc_axes;
+    #$self->calc_coords(1);
 
     $self->{scale_x} = ($self->{x}->[-1] - $self->{x}->[0])/($r_mz - $l_mz);
     $self->{scale_x} = max($self->{scale_x},1);
@@ -430,7 +431,7 @@ sub calc_axes {
     my ($self) = @_;
 
     my $x_ticks = $self->{w_surf_p}  / 50;
-    my $y_ticks = $self->{h_surf_p} / 14;
+    my $y_ticks = $self->{h_surf_p} / 24;
     $x_ticks = $x_ticks > 2 ? $x_ticks : 2;
     $y_ticks = $y_ticks > 2 ? $y_ticks : 2;
 
@@ -531,6 +532,26 @@ sub set_peptide {
 
 }
 
+sub fit_y {
+
+    my ($self) = @_;
+
+    my $lp = $self->{data_off_p};
+    my $rp = $lp + $self->{w_view_p};
+
+    my $li = $self->find_nearest($lp);
+    my $ri = $self->find_nearest($rp);
+
+    my $max_y = 0;
+    for my $i ($li..$ri-1) {
+        my $y = $self->{y}->[$self->{xmap}->{$i}];
+        $max_y = $y if ($y > $max_y);
+    }
+    my $sf = $self->{max_y_c}/Y_PAD_FRAC/$max_y;
+    $self->zoom_y($sf);
+
+}
+
 sub index_at {
 
     my ($self, $xc) = @_;
@@ -543,6 +564,8 @@ sub index_at {
 }
 
 sub closest_point {
+
+    # returns x index of closest used point 
 
     my ($self, $xc, $yc) = @_;
 
@@ -590,8 +613,8 @@ sub on_click {
             $self->queue_draw;
         }
         else {
-            my $i = $self->index_at($px);
-            $self->set_selection($i);
+            my $i = $self->closest_point($px, $py);
+            $self->set_selection( $self->{xmap}->{$i} );
         }
 
     }
@@ -833,22 +856,22 @@ sub log_n {
 # returns index to nearest pixel array greater than or equal to $xp
 sub find_nearest {
 
-    my ($self,$xp) = @_;
+    my ($self, $xp) = @_;
 
     my $lower = 0;
     my $upper = $#{$self->{x_pixel}};
-    my $mid;
     while ($lower != $upper) {
-        $mid = int( ($lower+$upper)/2 );
-        return $mid if ($xp == $self->{x_pixel}->[$mid]);
-        if ($xp < $self->{x_pixel}->[$mid]) {
-            $upper = $mid;
-        }
-        else {
-            $lower = $mid + 1;
-        }
+        my $mid = int( ($lower+$upper)/2 );
+        ($lower,$upper) = $xp > $self->{x_pixel}->[$mid] + FLOAT_TOL
+            ? ($mid+1, $upper)
+            : ($lower, $mid  );
     }
-    return $mid;
+    if ($lower > 0) {
+        my $r = $self->{x_pixel}->[$lower];
+        my $l = $self->{x_pixel}->[$lower-1];
+        $lower = $xp - $l > $r - $xp ? $lower : $lower - 1;
+    }
+    return $lower;
 
 }
 
@@ -1250,10 +1273,7 @@ sub expose {
         $cr->save;
         $cr->rectangle($w - MARG_R - $pw - 20, MARG_T + 40, $pw, $ph);
         $cr->clip;
-        #$cr->set_source_rgba(1,0,0,1);
-        #$cr->fill;
         $cr->set_source_surface($surf,$w - MARG_R - $pw - 20 ,MARG_T+40);
-        #$cr->set_source_surface($surf,0,0);
         $cr->paint;
         $cr->restore;
     }
@@ -1434,8 +1454,6 @@ sub set_hard_limits {
 
 }
 
-sub fit_y {}
-
 sub clear {
 
     my ($self) = @_;
@@ -1503,8 +1521,11 @@ sub load_chrom {
 
     my ($self, $ic, $add) = @_;
 
-    $self->set_title( 0 => "RT:"  . round($self->{x}->[0], 0)
-        . '-' . round($self->{x}->[-1], 0) );
+    my $rt  = $ic->rt;
+    my $int = $ic->int;
+
+    $self->set_title( 0 => "RT:"  . round($rt->[0], 0)
+        . '-' . round($rt->[-1], 0) );
     if (defined $ic->window()) {
         $self->set_title( 1 => " m/z:"  . sig_fig($ic->window()->[0], 5)
           . '-' . sig_fig($ic->window()->[1], 5) );
@@ -1513,7 +1534,7 @@ sub load_chrom {
     $self->{xlab} = 'retention time (s)';
     $self->{ylab} = 'ion current';
 
-    $self->load_data( $ic->rt, $ic->int, 'lines' );
+    $self->load_data( $rt, $int, 'lines' );
 
 }
 
@@ -1526,22 +1547,11 @@ sub load_data {
 
     $type //= 'lines';
 
-    #if (! $add) {
-        #$self->{x} = [];
-        #$self->{y} = [];
-    #}
-
-
     $self->{x} = $x;
     $self->{y} = $y;
-    #push @{ $self->{x} }, $x;
-    #push @{ $self->{y} }, $y;
     $self->set_type($type);
 
     # find data extrema
-    #my $min_cx = min( map {$self->{x}->[$_]->[ 0]} 0..$#{$self->{x}} );
-    #my $max_cx = max( map {$self->{x}->[$_]->[-1]} 0..$#{$self->{x}} );
-    #my $max_cy = max( map {$self->{y}->[$_]->[-1]} 0..$#{$self->{y}} );
     my $min_cx = $self->{hard_min} // $self->{x}->[0];
     my $max_cx = $self->{hard_max} // $self->{x}->[-1];
     my $max_cy = max @{$self->{y}};
