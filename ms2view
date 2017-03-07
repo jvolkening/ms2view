@@ -386,10 +386,10 @@ sub _return_framework {
     $sw->set_size_request(200, 400);
 
 
-    my $vbox_right = Gtk2::VBox->new();
-    $vbox_right->pack_start($other_canvas, TRUE, TRUE, 0);
-    $vbox_right->pack_start($sw, TRUE, TRUE, 0);
-    $hpaned->pack2($vbox_right, TRUE, FALSE);
+    my $vpaned_right = Gtk2::VPaned->new();
+    $vpaned_right->pack1($other_canvas, TRUE, TRUE);
+    $vpaned_right->pack2($sw, FALSE, TRUE);
+    $hpaned->pack2($vpaned_right, TRUE, FALSE);
 
     $vbox->pack_end($hpaned, TRUE, TRUE, 0);
 
@@ -414,7 +414,7 @@ sub load_scan {
 
     my ($scan) = @_;
 
-    $main_canvas->remove_shading($ms1_hid) if (defined $ms1_hid);
+    $other_canvas->remove_shading($ms1_hid) if (defined $ms1_hid);
     $other_canvas->remove_vline($xic_lid) if (defined $xic_lid);
     if ($scan->ms_level > 1) {
         $main_canvas->set_hard_limits(undef, undef);
