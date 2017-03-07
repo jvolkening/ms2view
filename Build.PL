@@ -9,7 +9,7 @@ my $builder = Module::Build->new(
     dist_version       => 0.002,
     dist_abstract      => 'ms2view is a simple mass spectrum viewer',
     license            => 'GPL_3',
-    dist_author        => q{Jeremy Volkening <volkening@wisc.edu>},
+    dist_author        => q{Jeremy Volkening <jdv@base2bio.com>},
     configure_requires => {
         'Module::Build' => 0,
     },

@@ -616,3 +616,87 @@ sub annotate {
     $main_canvas->set_peptide($pep);
 
 }
+
+
+__END__
+
+=head1 NAME
+
+ms2view - a simple mass spectrum viewer
+
+=head1 SYNOPSIS
+
+ms2view --raw <input.mzML> [--pepxml ids.pepxml --hardklor peptides.hk]
+
+=head1 DESCRIPTION
+
+B<ms2view> is a simple viewer for tandem mass spectrometry data. At its
+simplest it combines an overview of an LC-MS/MS run along with individual MS1
+and MS2 spectra. It can also show and annotate peptide spectral matches based
+on a pepXML input as well as highlight peptide features detected by the
+Hardklor program.
+
+=head1 PREREQUISITES
+
+Requires the following non-core Perl libraries:
+
+=over 1
+
+=item * Gtk2
+
+=item * Gtk2::SimpleList
+
+=item * MS
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<--raw> I<filename>
+
+Path to input mzML file (required)
+
+=item B<--pepxml> I<filename>
+
+Path to input pepXML containing spectral IDS for the corresponding mzML
+
+=item B<--ids> I<integer>
+
+Path to input tab-separated table  containing spectral IDS for the corresponding mzML
+
+=item B<--hardklor>
+
+Path to Hardklor output file containing peptide features for the corresponding
+mzML (NOTE: this feature is currently unimplemented)
+
+=back
+
+=head1 CAVEATS AND BUGS
+
+Please submit bug reports to the issue tracker in the distribution repository.
+
+=head1 AUTHOR
+
+Jeremy Volkening (jdv@base2bio.com)
+
+=head1 LICENSE AND COPYRIGHT
+
+Copyright 2014-17 Jeremy Volkening
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
