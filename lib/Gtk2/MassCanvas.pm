@@ -120,6 +120,7 @@ sub _clamp {
 sub zoom_to {
 
     my ($self, $l_mz, $r_mz) = @_;
+    warn "zoom to $l_mz, $r_mz\n";
 
     #$self->{scale_x} = ($self->{x}->[-1] - $self->{x}->[0])/($r_mz - $l_mz);
     #$self->{scale_x} = _clamp( $self->{scale_x}, 1, $self->{scale_x} );
@@ -614,6 +615,7 @@ sub on_click {
         }
         else {
             my $i = $self->closest_point($px, $py);
+            warn "closest_point: $i\n";
             $self->set_selection( $self->{xmap}->{$i} );
         }
 

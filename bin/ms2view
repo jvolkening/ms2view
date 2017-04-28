@@ -127,15 +127,17 @@ my @mods;
 my @charges;
 my $mz_min;
 my $mz_max;
+my $tic;
+my $bpc;
 
 # initialize GUI
-$gobjs->{mw} = _build_ui();
+my $mw = _build_ui();
 
 if (defined $fn_raw) {
-    
+   
     $parser->load( $fn_raw );
 
-    while (my $s = $parser->next_spectrum) {
+    while (my $s = $parser->next_spectrum(filter => [MS_MS_LEVEL, 1])) {
 
         my $low  = $s->param(MS_LOWEST_OBSERVED_M_Z);
         my $high = $s->param(MS_HIGHEST_OBSERVED_M_Z);
@@ -154,7 +156,8 @@ if (defined $fn_raw) {
     $parser->goto_spectrum(0);
     my $scan = $parser->fetch_spectrum(0);
     load_scan( $scan );
-    my $tic = MS::Reader::MzML::Chromatogram->new(type => 'tic', raw => $parser);
+    $tic = MS::Reader::MzML::Chromatogram->new(type => 'tic', raw => $parser);
+    $bpc = MS::Reader::MzML::Chromatogram->new(type => 'bpc', raw => $parser);
     $tic_canvas->load_chrom($tic);
 }
 if (defined $fn_pepxml) {
@@ -253,6 +256,44 @@ sub _build_ui {
     
     # Next we put together the main content
     $mw->add($vbox_main);
+
+    $mw->signal_connect( 'key-release-event' => sub {
+        
+        if ($_[1]->keyval == 98) { # 'b'
+            $tic_canvas->load_chrom($bpc);
+        }
+        elsif ($_[1]->keyval == 116) { # 't'
+            $tic_canvas->load_chrom($tic);
+
+        }
+        elsif ($_[1]->keyval == 65289) { # 'TAB'
+            my @can = ($tic_canvas, $main_canvas, $other_canvas);
+            for (0..$#can) {
+                if ($can[$_]->has_focus()) {
+                    my $new_focus = $can[ ($_+1)%3 ];
+                    $mw->set_focus($new_focus);
+                    last;
+                }
+            }
+            $tic_canvas->load_chrom($tic);
+
+        }
+        elsif ($_[1]->keyval == 65056) { # 'Shift-TAB'
+            my @can = ($tic_canvas, $main_canvas, $other_canvas);
+            for (0..$#can) {
+                if ($can[$_]->has_focus()) {
+                    my $new_focus = $can[ ($_+2)%3 ];
+                    $mw->set_focus($new_focus);
+                    last;
+                }
+            }
+            $tic_canvas->load_chrom($tic);
+
+        }
+            #$t_btn_go->signal_emit('clicked');
+        #}
+        #return TRUE;
+    });
 
     $mw->show_all();
     return $mw;
@@ -377,7 +418,6 @@ sub _return_framework {
         my $scan = $parser->fetch_spectrum($idx);
         load_scan($scan);
         my $row = ($path->get_indices())[0];
-        warn "R: $row\n";
         annotate($scan, $row_ref->[1], $row);
     });
     my $sw = Gtk2::ScrolledWindow->new(undef,undef);
@@ -529,7 +569,7 @@ sub get_filename {
 
     my $file_chooser =  Gtk2::FileChooserDialog->new( 
         $heading,
-        $gobjs->{mw},
+        $mw,
         $type,
         'gtk-cancel' => 'cancel',
         'gtk-ok' => 'ok'
@@ -598,7 +638,6 @@ sub annotate {
     for (@labels) {
         my ($i, $lab, $col) = @$_;
         my $m = $mz->[$i];
-        warn "Label $m => $lab\n";
     }
     $main_canvas->label(@labels);
 
