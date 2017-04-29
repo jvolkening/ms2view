@@ -894,6 +894,8 @@ sub draw {
 	my $cr_data = Cairo::Context->create($self->{surf_data});
 	my $cr_bg   = Cairo::Context->create($self->{surf_bg});
 
+    # draw peptide plot
+
     if (defined $self->{peptide}) {
 
         my $pep = $self->{peptide};
@@ -905,7 +907,9 @@ sub draw {
         my ($lx,$ly) = $layout->get_size;
         my $em = [$lx/PANGO_SCALE, $ly/PANGO_SCALE];
 
-        my $w = length($pep)*($em->[0]+5);
+        my $space = 9;
+
+        my $w = length($pep)*($em->[0]+$space);
         my $h = $em->[1] * 4;
         warn "pep: $pep $w x $h\n";
         $self->{surf_pep} =
@@ -917,7 +921,7 @@ sub draw {
         $layout->set_font_description($self->{font_med});
         my $layout2 = Pango::Cairo::create_layout($cr_pep);
         $layout2->set_font_description($self->{font_small});
-        my $x = int($em->[0]/2+2.5)+0.5;
+        my $x = int($em->[0]/2+$space/2)+0.5;
         my $y = $h/2;
         $cr_pep->set_line_width(1);
         my @res = split '', $pep;
@@ -932,7 +936,7 @@ sub draw {
             Pango::Cairo::update_layout($cr_pep, $layout);
             _anchor_pango($cr_pep, $layout, '',  $x, $y);
             last if ($_ == $#res);
-            $x += $em->[0]/2+2.5;
+            $x += $em->[0]/2+$space/2;
             $cr_pep->move_to($x,$y);
             $cr_pep->line_to($x,$y-$em->[1]/2-2);
             $cr_pep->line_to($x+$em->[0]/2 ,$y-$em->[1]/2-7);
@@ -955,7 +959,7 @@ sub draw {
             _anchor_pango($cr_pep, $layout2, 'n',  $x-$em->[0]/2-1,
                 $y+$em->[1]/2+8);
 
-            $x += $em->[0]/2+2.5;
+            $x += $em->[0]/2+$space/2;
         }
         $cr_pep->restore;
         $cr_pep->show_page;
@@ -1137,9 +1141,9 @@ sub draw {
 
 sub expose {
 
-	my ($self, $event) = @_;
+	my ($self, $event, $cr) = @_;
 
-	my $cr = Gtk2::Gdk::Cairo::Context->create($self->window);
+	$cr //= Gtk2::Gdk::Cairo::Context->create($self->window);
     my $alloc = $self->allocation;
     my $w = $alloc->width;
     my $h = $alloc->height;
@@ -1467,6 +1471,23 @@ sub clear {
 
 }
 
+sub save_to_png {
+
+    my ($self, $fn) = @_;
+
+    my $alloc = $self->allocation;
+    my $w = $alloc->width;
+    my $h = $alloc->height;
+
+    my $surf = Cairo::ImageSurface->create('argb32', $w, $h);
+    my $cr = Cairo::Context->create($surf);
+    $self->expose(undef, $cr);
+    $surf->write_to_png($fn);
+
+    return;
+
+}
+
 # load MzML::Scan object (MS1 scan, MS2 scan, etc)
 sub load_spectrum {
 
@@ -1493,6 +1514,7 @@ sub load_spectrum {
         $subtitle .= " | PreMono:" . round($pre->{mono_mz},4);
         $subtitle .= " | IsoWin:" . round($pre->{iso_lower},3)
             . '-' . round($pre->{iso_upper},3);
+        $subtitle .= " | z:" . $pre->{charge};
     }
     $self->{titles}->[0] = $description;
     $self->{titles}->[1] = $subtitle;

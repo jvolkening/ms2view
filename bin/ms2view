@@ -137,27 +137,47 @@ if (defined $fn_raw) {
    
     $parser->load( $fn_raw );
 
-    while (my $s = $parser->next_spectrum(filter => [MS_MS_LEVEL, 1])) {
+    $mz_min = $parser->get_app_data($NAME, 'mz_min');
+    $mz_max = $parser->get_app_data($NAME, 'mz_max');
 
-        my $low  = $s->param(MS_LOWEST_OBSERVED_M_Z);
-        my $high = $s->param(MS_HIGHEST_OBSERVED_M_Z);
+    if (! defined $mz_min || ! defined $mz_max) {
 
-        if (! defined $low || ! defined $high) {
-            my $mz = $s->mz;
-            $low  = $mz->[0];
-            $high = $mz->[-1];
+        while (my $s = $parser->next_spectrum(filter => [MS_MS_LEVEL, 1])) {
+
+            my $low  = $s->param(MS_LOWEST_OBSERVED_M_Z);
+            my $high = $s->param(MS_HIGHEST_OBSERVED_M_Z);
+
+            if (! defined $low || ! defined $high) {
+                my $mz = $s->mz;
+                $low  = $mz->[0];
+                $high = $mz->[-1];
+            }
+
+            $mz_min = $low  if (! defined $mz_min || $low  < $mz_min);
+            $mz_max = $high if (! defined $mz_max || $high > $mz_max);
+
         }
 
-        $mz_min = $low  if (! defined $mz_min || $low  < $mz_min);
-        $mz_max = $high if (! defined $mz_max || $high > $mz_max);
+        $parser->set_app_data($NAME, 'mz_min' => $mz_min);
+        $parser->set_app_data($NAME, 'mz_max' => $mz_max);
 
     }
 
     $parser->goto_spectrum(0);
     my $scan = $parser->fetch_spectrum(0);
     load_scan( $scan );
-    $tic = MS::Reader::MzML::Chromatogram->new(type => 'tic', raw => $parser);
-    $bpc = MS::Reader::MzML::Chromatogram->new(type => 'bpc', raw => $parser);
+
+    $tic = $parser->get_app_data($NAME, 'tic');
+    $bpc = $parser->get_app_data($NAME, 'bpc');
+
+    if (! defined $tic) {
+        $tic = MS::Reader::MzML::Chromatogram->new(type => 'tic', raw => $parser);
+        $parser->set_app_data($NAME, 'tic' => $tic);
+    }
+    if (! defined $bpc) {
+        $bpc = MS::Reader::MzML::Chromatogram->new(type => 'bpc', raw => $parser);
+        $parser->set_app_data($NAME, 'bpc' => $bpc);
+    }
     $tic_canvas->load_chrom($tic);
 }
 if (defined $fn_pepxml) {
@@ -265,6 +285,11 @@ sub _build_ui {
         elsif ($_[1]->keyval == 116) { # 't'
             $tic_canvas->load_chrom($tic);
 
+        }
+        elsif ($_[1]->keyval == 115) { # 's'
+            my $fn = get_filename('Select location to save PNG', 'save');
+            $mw->get_focus()->save_to_png($fn)
+                if ($fn);
         }
         elsif ($_[1]->keyval == 65289) { # 'TAB'
             my @can = ($tic_canvas, $main_canvas, $other_canvas);
@@ -578,9 +603,9 @@ sub get_filename {
     # since we are auto-adding the correct suffix if missing, we need to
     # manually handle the overwrite confirmation and check the filename
     # with suffix added as well
-    if ($type eq 'save') {
-        $file_chooser->set_do_overwrite_confirmation(TRUE);
-    }
+    #if ($type eq 'save') {
+        #$file_chooser->set_do_overwrite_confirmation(TRUE);
+    #}
 
     my $filename;
     if ('ok' eq $file_chooser->run){    
