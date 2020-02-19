@@ -106,12 +106,14 @@ my $fn_raw;
 my $fn_ids;
 my $fn_pepxml;
 my $fn_hardklor;
+my $guess_spectrum_id = 0;
 
 GetOptions(
     'raw=s'      => \$fn_raw,
     'pepxml=s'   => \$fn_pepxml,
     'ids=s'      => \$fn_ids,
     'hardklor=s' => \$fn_hardklor,
+    'guess_ids'  => \$guess_spectrum_id,
 );
 
 my $parser = MS::Reader::MzML->new;
@@ -237,15 +239,22 @@ sub load_list {
     }
     else {
         $pep_p->load($fn);
-        while (my $run = $pep_p->next_run) {
-            while (my $spectrum = $run->next_query) {
+
+        for (0..$pep_p->n_lists()-1) {
+
+            $pep_p->goto_list($_);
+
+            PSM:
+            while (my $spectrum = $pep_p->next_result) {
                 my $z  = $spectrum->{assumed_charge};
                 my $id = $spectrum->{start_scan};
-                my $pep = $spectrum->top_hit->{peptide};
-                my @m = $spectrum->mod_delta_array;
-                push @mods, \@m;
-                push @charges, $z;
-                push @{$list->{data}}, [$id,$pep];
+                if (defined $spectrum->get_hit(0)) {
+                    my $pep = $spectrum->get_hit(0)->{peptide};
+                    my $m = $spectrum->mod_delta_array;
+                    push @mods, $m;
+                    push @charges, $z;
+                    push @{$list->{data}}, [$id,$pep];
+                }
             }
         }
     }
@@ -439,7 +448,10 @@ sub _return_framework {
     $list->signal_connect('row_activated' => sub {
         my ($l, $path, $col) = @_;
         my $row_ref = $l->get_row_data_from_path($path);
-        my $idx = $parser->spectrum_index_by_id( $row_ref->[0] );
+        my $id = $guess_spectrum_id
+            ? "controllerType=0 controllerNumber=1 scan=$row_ref->[0]"
+            : $row_ref->[0];
+        my $idx = $parser->spectrum_index_by_id( $id );
         my $scan = $parser->fetch_spectrum($idx);
         load_scan($scan);
         my $row = ($path->get_indices())[0];

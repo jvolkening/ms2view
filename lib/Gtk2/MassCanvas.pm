@@ -135,6 +135,7 @@ sub zoom_to {
     $self->{scale_x} = max($self->{scale_x},1);
 
     $self->{w_surf_p} = $self->{w_view_p}*$self->{scale_x};
+    warn "SURF: $self->{w_surf_p}\n";
 
     $self->calc_used;
     $self->calc_axes;
@@ -769,6 +770,18 @@ sub on_motion {
         $cr->show_page;
     }
 
+    my $sensitivity = 3;
+
+    if (! defined $self->{last_x}) {
+        $self->{last_x} = $xp;
+        $self->queue_draw;
+        return;
+    }
+    elsif (abs($self->{last_x} - $xp) < $sensitivity) {
+        $self->queue_draw;
+        return;
+    }
+
     if ($self->{inside}) {
         if (defined $self->{left_drag}) {
             my ($l,$r) = @{ $self->{left_drag} };
@@ -911,7 +924,6 @@ sub draw {
 
         my $w = length($pep)*($em->[0]+$space);
         my $h = $em->[1] * 4;
-        warn "pep: $pep $w x $h\n";
         $self->{surf_pep} =
             Cairo::ImageSurface->create('argb32',$w, $h);
         my $cr_pep = Cairo::Context->create($self->{surf_pep});
