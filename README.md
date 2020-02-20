@@ -1,11 +1,13 @@
+![Logo](logo.svg)
+
 ms2view - a simple mass spectrum viewer with vim-like bindings
 =======================================
 
-# SYNOPSIS
+## SYNOPSIS
 
 ms2view --raw &lt;input.mzML> \[--pepxml ids.pepxml --hardklor peptides.hk\]
 
-# DESCRIPTION
+## DESCRIPTION
 
 **ms2view** is a simple viewer for tandem mass spectrometry data. It combines
 an overview of an LC-MS/MS run with display of individual MS1 and MS2 spectra.
@@ -16,7 +18,7 @@ While navigation can be done using a mouse, there are also a set of vim-like
 keybindings to allow quick navigation via the keyboard. The supported bindings
 are described below.
 
-# PREREQUISITES
+## PREREQUISITES
 
 Requires the following non-core Perl libraries:
 
@@ -24,7 +26,7 @@ Requires the following non-core Perl libraries:
 - Gtk2::SimpleList
 - MS
 
-# COMMAND-LINE OPTIONS
+## COMMAND-LINE OPTIONS
 
 - **--raw** _filename_
 
@@ -43,7 +45,7 @@ Requires the following non-core Perl libraries:
     Path to Hardklor output file containing peptide features for the corresponding
     mzML (NOTE: this feature is currently unimplemented)
 
-# KEY BINDINGS
+## KEY BINDINGS
 
 The following keybindings are enabled:
 
@@ -62,7 +64,7 @@ The following keybindings are enabled:
 
 * `s` save the currently focused canvas as PNG (will prompt for filename)
 
-# MOUSE NAVIGATION
+## MOUSE NAVIGATION
 
 The following mouse actions are supported on each spectrum canvas:
 
@@ -81,17 +83,17 @@ The following mouse actions are supported on each spectrum canvas:
 
 * `ctrl+scroll-wheel` change y-axis zoom
 
-# CAVEATS AND BUGS
+## CAVEATS AND BUGS
 
 Please submit bug reports to the issue tracker in the distribution repository.
 
-# AUTHOR
+## AUTHOR
 
 Jeremy Volkening (jdv@base2bio.com)
 
-# LICENSE AND COPYRIGHT
+## LICENSE AND COPYRIGHT
 
-Copyright 2014-17 Jeremy Volkening
+Copyright 2014-20 Jeremy Volkening
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
