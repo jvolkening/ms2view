@@ -97,7 +97,7 @@ use constant ZO => 0.80;
 
 # globals
 my $NAME    = 'ms2view';
-my $VERSION = '0.002';
+my $VERSION = '0.003';
 
 my $gobjs   = {};
 my $embedded = get_embedded();
@@ -107,6 +107,7 @@ my $fn_ids;
 my $fn_pepxml;
 my $fn_hardklor;
 my $guess_spectrum_id = 0;
+my $fdr;
 
 GetOptions(
     'raw=s'      => \$fn_raw,
@@ -114,6 +115,7 @@ GetOptions(
     'ids=s'      => \$fn_ids,
     'hardklor=s' => \$fn_hardklor,
     'guess_ids'  => \$guess_spectrum_id,
+    'fdr=f'      => \$fdr,
 );
 
 my $parser = MS::Reader::MzML->new;
@@ -125,8 +127,9 @@ my $other_canvas;
 my $list;
 my $ms1_hid;
 my $xic_lid;
-my @mods;
-my @charges;
+my %mods;
+my %charges;
+my %peptides;
 my $mz_min;
 my $mz_max;
 my $tic;
@@ -213,10 +216,12 @@ sub load_list {
     my ($fn, $is_tsv) = @_;
     return if (! defined $fn);
     my %seen;
-    @mods = ();
-    @charges = ();
+    %mods = ();
+    %charges = ();
+    %peptides = ();
     if ($is_tsv) {
         open my $in, '<', $fn;
+        PSM:
         while (my $line = <$in>) {
             chomp $line;
             my (
@@ -231,9 +236,11 @@ sub load_list {
                 $z,
                 $mod_string,
             ) = split "\t", $line;
+            next PSM if (defined $fdr && $score > $fdr);
             my @m = split ',', $mod_string;
-            push @mods, \@m;
-            push @charges, $z;
+            $mods{$id}     = \@m;
+            $charges{$id}  = $z;
+            $peptides{$id} = $pep;
             push @{$list->{data}}, [$id,$pep];
         }
     }
@@ -246,13 +253,25 @@ sub load_list {
 
             PSM:
             while (my $spectrum = $pep_p->next_result) {
-                my $z  = $spectrum->{assumed_charge};
-                my $id = $spectrum->{start_scan};
-                if (defined $spectrum->get_hit(0)) {
-                    my $pep = $spectrum->get_hit(0)->{peptide};
+                my $z    = $spectrum->{assumed_charge};
+                my $scan = $spectrum->{start_scan};
+                my $id   = $spectrum->{spectrumNativeID};
+
+                # if native ID not defined, either guess or use scan number
+                $id //= $guess_spectrum_id
+                    ? "controllerType=0 controllerNumber=1 scan=$scan"
+                    : $scan;
+
+                my $hit = $spectrum->get_hit(0);
+                if (defined $hit) {
+                    my $pep = $hit->{peptide};
+                    my $q   = $hit->{search_score}->{percolator_qvalue}->{value}
+                        // 1;
+                    next PSM if (defined $fdr && $q > $fdr);
                     my $m = $spectrum->mod_delta_array;
-                    push @mods, $m;
-                    push @charges, $z;
+                    $mods{$id}     = $m;
+                    $charges{$id}  = $z;
+                    $peptides{$id} = $pep;
                     push @{$list->{data}}, [$id,$pep];
                 }
             }
@@ -448,14 +467,15 @@ sub _return_framework {
     $list->signal_connect('row_activated' => sub {
         my ($l, $path, $col) = @_;
         my $row_ref = $l->get_row_data_from_path($path);
-        my $id = $guess_spectrum_id
-            ? "controllerType=0 controllerNumber=1 scan=$row_ref->[0]"
-            : $row_ref->[0];
+        my $id = $row_ref->[0];
         my $idx = $parser->spectrum_index_by_id( $id );
         my $scan = $parser->fetch_spectrum($idx);
-        load_scan($scan);
-        my $row = ($path->get_indices())[0];
-        annotate($scan, $row_ref->[1], $row);
+        #load_scan($scan);
+        change_spectrum(
+            undef,
+            'by_idx',
+            $idx,
+        );
     });
     my $sw = Gtk2::ScrolledWindow->new(undef,undef);
     $sw->set_policy('never','always');
@@ -537,6 +557,9 @@ sub change_spectrum {
         my $scan = $parser->fetch_spectrum($scan_idx );
         $parser->goto_spectrum( $scan_idx );
         load_scan( $scan );
+        if (defined $mods{ $scan->id }) {
+            annotate($scan);
+        }
     }
 
 }
@@ -636,7 +659,9 @@ sub get_filename {
 
 sub annotate {
 
-   my ($scan, $pep, $row) = @_;
+   my ($scan) = @_;
+
+   my $id_use   = $scan->id;
 
    my $mz  = $scan->mz;
    my $int = $scan->int;
@@ -645,8 +670,9 @@ sub annotate {
    #my $cutoff = $int[ int(scalar(@int)*5/6) ]; # roughly Q3
    my $cutoff = 0.;
    my $id = $scan->id;
-   my $mods = $mods[$row];
-   my $z = $charges[$row];
+   my $mods = $mods{$id_use};
+   my $z = $charges{$id_use};
+   my $pep  = $peptides{$id_use};
    my @frags = calc_fragments(uc($pep), $mods, $z);
    print join(" ",@{$_})."\n" for (@frags);
    my %matches;
@@ -668,14 +694,14 @@ sub annotate {
                 $lab .= $extra;
             }
             $matches{$theo->[0]}->{int} = $int->[$i];
-            $matches{$theo->[0]}->{entry} = [$i, $lab, $col_idx];
+            $matches{$theo->[0]}->{entry} = [$i, $lab, $col_idx, $theo->[3], $theo->[4]];
         }
     }
     my @labels = map {$matches{$_}->{entry}} keys %matches;
-    for (@labels) {
-        my ($i, $lab, $col) = @$_;
-        my $m = $mz->[$i];
-    }
+    #for (@labels) {
+        #my ($i, $lab, $col) = @$_;
+        #my $m = $mz->[$i];
+    #}
     $main_canvas->label(@labels);
 
     my @chars = split '', $pep;

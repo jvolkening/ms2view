@@ -353,12 +353,21 @@ sub calc_labels {
 sub label {
 
     my ($self, @labels) = @_;
+
+    LABEL:
     for (@labels) {
-        if (defined $self->{labeled}->{$_->[0]}->[1]) {
-            warn "replacing $self->{labeled}->{$_->[0]}->[1]->[0] with $_->[1]\n";
+        my $l = $self->{labeled}->{ $_->[0] }->[1];
+        if (defined $l) {
+            if ($l->[2] <= $_->[3]
+              || (defined $_->[4] && ! defined $l->[3])) {
+                next LABEL;
+            }
+            else {
+                warn "replacing $self->{labeled}->{$_->[0]}->[1]->[0] with $_->[1]\n";
+            }
         }
         $self->{labeled}->{$_->[0]}->[1]
-            = [$_->[1],$_->[2]];
+            = [$_->[1],$_->[2],$_->[3],$_->[4]];
     }
     $self->draw();
 
