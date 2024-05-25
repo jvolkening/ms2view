@@ -1149,6 +1149,38 @@ sub draw {
             }
             ++$i;
         }
+
+        # always draw certain labels
+        for my $xc (keys %{ $self->{labeled} }) {
+           
+            next if (! defined $xc);
+            my $mz  = $self->{x}->[$xc];
+            next if (! defined $mz);
+            my $int = $self->{y}->[$xc];
+            my $x = $self->x2p( $mz ) - $self->{data_off_p} + 0.5;
+            my $y = $self->y2p( $int );
+
+            my $c = 1;
+            my $lab = $self->{labeled}->{$xc}->[1];
+            next if ! defined $lab;
+            next if (! defined $lab->[1]);
+            ++$c;
+            $cr_lbl->save;
+            $x += 0.5;
+            $layout->set_markup( $lab->[0] );
+            Pango::Cairo::update_layout($cr_lbl,$layout);
+            my ($lx,$ly) = $layout->get_size;
+            $cr_lbl->move_to($x-$lx/2/PANGO_SCALE,$y - $ly/PANGO_SCALE - 2);
+            $y -= $ly/PANGO_SCALE + 1;
+            Pango::Cairo::layout_path($cr_lbl,$layout);
+            $cr_lbl->set_line_width(3);
+            $cr_lbl->set_source_rgba(1.0, 1.0, 1.0, 1.0);
+            $cr_lbl->stroke_preserve;
+            $cr_lbl->set_source_rgba(@{ $label_colors[$lab->[1]] });
+            $cr_lbl->fill;
+            $cr_lbl->restore;
+        }
+
         $cr_data->stroke;
         $cr_data->restore;
 

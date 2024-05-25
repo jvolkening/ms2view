@@ -82,7 +82,9 @@ use Gtk2::SimpleList;
 use List::Util;
 use MIME::Base64 qw/decode_base64/;
 use Time::Piece;
+use PerlIO::gzip;
 
+use MS::Mass qw/:all/;
 use MS::Reader::MzML;
 use MS::Reader::PepXML;
 use MS::PepInfo qw/calc_fragments/;
@@ -97,25 +99,31 @@ use constant ZO => 0.80;
 
 # globals
 my $NAME    = 'ms2view';
-my $VERSION = '0.003';
+my $VERSION = '0.004';
 
 my $gobjs   = {};
 my $embedded = get_embedded();
 
 my $fn_raw;
 my $fn_ids;
+my $fn_crux;
 my $fn_pepxml;
 my $fn_hardklor;
 my $guess_spectrum_id = 0;
 my $fdr;
+my $ms2_tol = 0.5;
+my $tol_type = 'amu';
 
 GetOptions(
     'raw=s'      => \$fn_raw,
     'pepxml=s'   => \$fn_pepxml,
     'ids=s'      => \$fn_ids,
+    'crux_ids=s' => \$fn_crux,
     'hardklor=s' => \$fn_hardklor,
     'guess_ids'  => \$guess_spectrum_id,
     'fdr=f'      => \$fdr,
+    'ms2_tol=f'  => \$ms2_tol,
+    'tol_type=s' => \$tol_type,
 );
 
 my $parser = MS::Reader::MzML->new;
@@ -191,6 +199,9 @@ if (defined $fn_pepxml) {
 elsif (defined $fn_ids) {
     load_list( $fn_ids, 1 );
 }
+elsif (defined $fn_crux) {
+    load_list( $fn_crux, 2 );
+}
 Gtk2->main;
 
 
@@ -213,13 +224,13 @@ sub cb_click {
 
 sub load_list {
 
-    my ($fn, $is_tsv) = @_;
+    my ($fn, $type) = @_;
     return if (! defined $fn);
     my %seen;
     %mods = ();
     %charges = ();
     %peptides = ();
-    if ($is_tsv) {
+    if ($type eq 1) {
         open my $in, '<', $fn;
         PSM:
         while (my $line = <$in>) {
@@ -241,6 +252,71 @@ sub load_list {
             $mods{$id}     = \@m;
             $charges{$id}  = $z;
             $peptides{$id} = $pep;
+            push @{$list->{data}}, [$id,$pep];
+        }
+    }
+    elsif ($type eq 2) {
+        my $in;
+        if ($fn =~ /\.gz$/) {
+            open $in, '<:gzip', $fn;
+        }
+        else {
+            open $in, '<', $fn;
+        }
+        my $h = <$in>;
+        PSM:
+        while (my $line = <$in>) {
+            chomp $line;
+            my (
+                $fid,
+                $scan,
+                $z,
+                $pre,
+                $spec_mass,
+                $pep_mass,
+                $score,
+                $q,
+                $err,
+                $n_match,
+                $pep,
+                $protein,
+                $flanking,
+            ) = split "\t", $line;
+            next PSM if (defined $fdr && $q > $fdr);
+
+            # if native ID not defined, either guess or use scan number
+            my $id //= $guess_spectrum_id
+                ? "controllerType=0 controllerNumber=1 scan=$scan"
+                : $scan;
+
+            #parse mods;
+            my @mods;
+            my $offset = 0;
+            while ($pep =~ /\[(.+?)\]/g) {
+                my $mod = $1;
+                my $pos = $-[0] - $offset;
+                $offset += length($mod)+2;
+                #$pos = 1 if ($pos == 0);
+                
+                if ($mod =~ /UNIMOD:(\d+)/) {
+                    my $id = $1;
+                    my $name = mod_id_to_name($id);
+                    $mods[$pos] = mod_mass($name, 'mono');;
+                }
+                else {
+                    die "Can't parse mod format\n";
+                }
+            }
+
+            my $pep_plain = $pep;
+            $pep_plain =~ s/\[.+?\]//g;
+            while (scalar @mods < length($pep_plain)+2) {
+                push @mods, 0;
+            }
+
+            $mods{$id}     = \@mods;
+            $charges{$id}  = $z;
+            $peptides{$id} = $pep_plain;
             push @{$list->{data}}, [$id,$pep];
         }
     }
@@ -681,7 +757,10 @@ sub annotate {
         THEO:
         for my $theo (@frags) {
             my $diff = $mz->[$i] - $theo->[0];
-            next THEO if (abs($diff) > 0.5);
+            my $tol = $tol_type eq 'amu' ? $ms2_tol
+                    : $tol_type eq 'ppm' ? $ms2_tol/1000000*$mz->[$i]
+                    : die "Bad --tol_type given: $tol_type\n";
+            next THEO if (abs($diff) > $tol);
             next THEO if ( defined $matches{$theo->[0]}
                 && $matches{$theo->[0]}->{int} > $int->[$i]);
             my $col_idx = $theo->[1] =~ /^[abc]/ ? 1 : 2;

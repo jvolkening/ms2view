@@ -6,7 +6,7 @@ use Module::Build;
 
 my $builder = Module::Build->new(
     module_name        => 'ms2view',
-    dist_version       => 0.002,
+    dist_version       => 0.004,
     dist_abstract      => 'ms2view is a simple mass spectrum viewer',
     license            => 'GPL_3',
     dist_author        => q{Jeremy Volkening <jdv@base2bio.com>},
