@@ -803,19 +803,22 @@ __END__
 
 =head1 NAME
 
-ms2view - a simple mass spectrum viewer
+ms2view - a simple mass spectrum viewer with vim-like bindings
 
 =head1 SYNOPSIS
 
-ms2view --raw <input.mzML> [--pepxml ids.pepxml --hardklor peptides.hk]
+ms2view --raw <input.mzML> [--pepxml ids.pepxml ...etc...]
 
 =head1 DESCRIPTION
 
-B<ms2view> is a simple viewer for tandem mass spectrometry data. At its
-simplest it combines an overview of an LC-MS/MS run along with individual MS1
-and MS2 spectra. It can also show and annotate peptide spectral matches based
-on a pepXML input as well as highlight peptide features detected by the
-Hardklor program.
+B<ms2view> is a simple viewer for tandem mass spectrometry data. It combines
+an overview of an LC-MS/MS run with display of individual MS1 and MS2 spectra.
+It can also show and annotate peptide spectral matches based on pepXML or
+tab-delimited input.
+
+While navigation can be done using a mouse, there are also a set of vim-like
+keybindings to allow quick navigation via the keyboard. The supported bindings
+are described below.
 
 =head1 PREREQUISITES
 
@@ -831,7 +834,7 @@ Requires the following non-core Perl libraries:
 
 =back
 
-=head1 OPTIONS
+=head1 COMMAND-LINE OPTIONS
 
 =over 4
 
@@ -843,7 +846,7 @@ Path to input mzML file (required)
 
 Path to input pepXML containing spectral IDS for the corresponding mzML
 
-=item B<--ids> I<integer>
+=item B<--ids> I<filename>
 
 Path to input tab-separated table  containing spectral IDS for the corresponding mzML
 
@@ -854,17 +857,63 @@ mzML (NOTE: this feature is currently unimplemented)
 
 =back
 
+=head1 KEY BINDINGS
+
+The following keybindings are enabled:
+
+=over 4
+
+=item C<tab> switch focus between three main canvases
+
+=item C<h> C<l> move peak selection left and right respectively (if the overview
+    panel is in focus, this will move to the next MS1 scan and load it in the
+    spectrum window)
+
+=item C<H> C<L> zoom canvas out and in on x-axis (zoom centers on currently
+    selected peak)
+
+=item C<J> C<K> zoom canvas out and in on y-axis
+
+=item C<<number>g> center the canvas at the m/z coordinate given by `<number>`
+
+=item C<s> save the currently focused canvas as PNG (will prompt for filename)
+
+=back
+
+=head1 MOUSE NAVIGATION
+
+The following mouse actions are supported on each spectrum canvas:
+
+=over 4
+
+=item C<left-click> change the current peak selection. The selected peak will be
+    the one with apex closest to the click point in Euclidean space.
+
+=item C<shift+left-click> drag to select a window and add an m/z label to the most
+    intense peak in the selected window
+
+=item C<ctrl+left-click> drag from near the apex of one peak to the apex and
+    another to display an on-screen ruler of the horizontal distance in m/z
+
+=item C<right-click> drag to move canvas view horizontally
+
+=item C<scroll-wheel> change x-axis zoom
+
+=item C<ctrl+scroll-wheel> change y-axis zoom
+
+=back
+
 =head1 CAVEATS AND BUGS
 
 Please submit bug reports to the issue tracker in the distribution repository.
 
 =head1 AUTHOR
 
-Jeremy Volkening (jdv@base2bio.com)
+Jeremy Volkening
 
 =head1 LICENSE AND COPYRIGHT
 
-Copyright 2014-17 Jeremy Volkening
+Copyright 2014-24 Jeremy Volkening
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
