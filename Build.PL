@@ -20,6 +20,7 @@ my $builder = Module::Build->new(
         'Gtk3'             => 0,
         'Gtk3::SimpleList' => 0,
         'MS'               => 0,
+        'Pango::Cairo'     => 0,
     },
     meta_merge => {
         resources => {

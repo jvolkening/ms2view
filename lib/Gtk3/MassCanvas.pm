@@ -8,7 +8,7 @@ use 5.012;
 use Glib qw/TRUE FALSE/;
 use Gtk3;
 use Cairo;
-use Pango;
+use Pango::Cairo;
 use List::Util qw/min max any/;
 use POSIX qw/floor ceil/;
 use MIME::Base64 qw/decode_base64/;
@@ -383,13 +383,13 @@ sub _anchor_pango {
 
     for ($dir) {
         if(/s/) {
-            $y_actual = $y - $ly/Pango::SCALE;
+            $y_actual = $y - $ly/&Pango::SCALE;
         }
         if(/n/) {
             $y_actual = $y;
         }
         if(/e/) {
-            $x_actual = $x - $lx/Pango::SCALE;
+            $x_actual = $x - $lx/&Pango::SCALE;
         }
         if(/w/) {
             $x_actual = $x
@@ -765,7 +765,7 @@ sub on_motion {
         $cr->set_source_rgba(0.0,0.0,0.0,1.0);
 
         my $layout = Pango::Cairo::create_layout($cr);
-        my $desc = Pango::FontDescription->from_string('Sans 8');
+        my $desc = Pango::FontDescription::from_string('Sans 8');
         $layout->set_font_description($desc);
         $layout->set_markup($x_data);
         Pango::Cairo::update_layout($cr,$layout);
@@ -927,7 +927,7 @@ sub draw {
         $layout->set_text('M');
         Pango::Cairo::update_layout($cr_lbl,$layout);
         my ($lx,$ly) = $layout->get_size;
-        my $em = [$lx/Pango::SCALE, $ly/Pango::SCALE];
+        my $em = [$lx/&Pango::SCALE, $ly/&Pango::SCALE];
 
         my $space = 9;
 
@@ -1136,8 +1136,8 @@ sub draw {
                     $layout->set_markup( $lab->[0] );
                     Pango::Cairo::update_layout($cr_lbl,$layout);
                     my ($lx,$ly) = $layout->get_size;
-                    $cr_lbl->move_to($x-$lx/2/Pango::SCALE,$y - $ly/Pango::SCALE - 2);
-                    $y -= $ly/Pango::SCALE + 1;
+                    $cr_lbl->move_to($x-$lx/2/&Pango::SCALE,$y - $ly/&Pango::SCALE - 2);
+                    $y -= $ly/&Pango::SCALE + 1;
                     Pango::Cairo::layout_path($cr_lbl,$layout);
                     $cr_lbl->set_line_width(3);
                     $cr_lbl->set_source_rgba(1.0, 1.0, 1.0, 1.0);
@@ -1170,8 +1170,8 @@ sub draw {
             $layout->set_markup( $lab->[0] );
             Pango::Cairo::update_layout($cr_lbl,$layout);
             my ($lx,$ly) = $layout->get_size;
-            $cr_lbl->move_to($x-$lx/2/Pango::SCALE,$y - $ly/Pango::SCALE - 2);
-            $y -= $ly/Pango::SCALE + 1;
+            $cr_lbl->move_to($x-$lx/2/&Pango::SCALE,$y - $ly/&Pango::SCALE - 2);
+            $y -= $ly/&Pango::SCALE + 1;
             Pango::Cairo::layout_path($cr_lbl,$layout);
             $cr_lbl->set_line_width(3);
             $cr_lbl->set_source_rgba(1.0, 1.0, 1.0, 1.0);
@@ -1312,12 +1312,12 @@ sub expose {
         my $d_mz = round( abs($mz_x2 - $mz_x1), 4 );
         my $layout = Pango::Cairo::create_layout($cr);
         $layout->set_alignment('center');
-        my $desc = Pango::FontDescription->from_string('Sans 8');
+        my $desc = Pango::FontDescription::from_string('Sans 8');
         $layout->set_font_description($desc);
         $layout->set_text($d_mz);
         Pango::Cairo::update_layout($cr,$layout);
         my ($lx,$ly) = $layout->get_size;
-        $cr->move_to(($x1+$x2)/2-$lx/2/Pango::SCALE,$y3 - 12);
+        $cr->move_to(($x1+$x2)/2-$lx/2/&Pango::SCALE,$y3 - 12);
         Pango::Cairo::show_layout($cr,$layout);
 
         $cr->restore;
@@ -1384,9 +1384,9 @@ sub INIT_INSTANCE {
     $self->{titles} = [];
     $self->{title_colors} = [];
     $self->{font_small}
-        = Pango::FontDescription->from_string('Sans 8');
+        = Pango::FontDescription::from_string('Sans 8');
     $self->{font_med}
-        = Pango::FontDescription->from_string('Sans 10');
+        = Pango::FontDescription::from_string('Sans 10');
 
     $self->add_events('GDK_BUTTON_PRESS_MASK');
     $self->add_events('GDK_BUTTON_RELEASE_MASK');
@@ -1420,7 +1420,7 @@ sub INIT_INSTANCE {
     $layout->set_text('M');
     Pango::Cairo::update_layout($cr_lbl,$layout);
     my ($lx,$ly) = $layout->get_size;
-    $self->{em} = [$lx/Pango::SCALE, $ly/Pango::SCALE];
+    $self->{em} = [$lx/&Pango::SCALE, $ly/&Pango::SCALE];
 
     # load cursors
     my $arrow = Gtk3::Gdk::Cursor->new('left_ptr');
