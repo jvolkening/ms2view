@@ -151,7 +151,7 @@ sub zoom_to {
 
 sub on_scroll {
 
-    my ($self,$ev) = @_;
+    my ($self, $ev) = @_;
 
     my $xp = $ev->x - MARG_L;
     my @state = @{ $ev->state };
@@ -604,8 +604,8 @@ sub closest_point {
 
 sub on_click {
 
-    my ($self,$ev) = @_;
-    my ($px,$py) = ($ev->x - MARG_L, $ev->y - MARG_T);
+    my ($self, $ev) = @_;
+    my ($px, $py) = ($ev->x - MARG_L, $ev->y - MARG_T);
     my @state = @{ $ev->state };
 
     $self->grab_focus;
