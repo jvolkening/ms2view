@@ -1,6 +1,6 @@
 bin/ms2view
 Build.PL
-lib/Gtk2/MassCanvas.pm
+lib/Gtk3/MassCanvas.pm
 MANIFEST			This list of files
 test_files/TMT_sample_centroid.mzML.gz
 test_files/TMT_sample_profile.mzML.gz

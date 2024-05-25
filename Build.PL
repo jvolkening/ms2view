@@ -17,8 +17,8 @@ my $builder = Module::Build->new(
         'Test::More'    => 0,
     },
     requires => {
-        'Gtk2'             => 0,
-        'Gtk2::SimpleList' => 0,
+        'Gtk3'             => 0,
+        'Gtk3::SimpleList' => 0,
         'MS'               => 0,
     },
     meta_merge => {

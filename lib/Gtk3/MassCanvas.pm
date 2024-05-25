@@ -1,4 +1,4 @@
-package Gtk2::MassCanvas;
+package Gtk3::MassCanvas;
 
 use warnings;
 use strict;
@@ -6,9 +6,9 @@ use strict;
 use 5.012;
 
 use Glib qw/TRUE FALSE/;
-use Gtk2;
+use Gtk3;
 use Cairo;
-use Gtk2::Pango;
+use Pango;
 use List::Util qw/min max any/;
 use POSIX qw/floor ceil/;
 use MIME::Base64 qw/decode_base64/;
@@ -16,9 +16,9 @@ use MIME::Base64 qw/decode_base64/;
 use MS::CV qw/:MS/;
 
 use Glib::Object::Subclass
-	Gtk2::DrawingArea::,
+	Gtk3::DrawingArea::,
 	signals => {
-		expose_event         => \&expose,
+		draw                 => \&expose,
         configure_event      => \&resize,
         motion_notify_event  => \&on_motion,
         button_press_event   => \&on_click,
@@ -378,18 +378,18 @@ sub _anchor_pango {
     my ($cr, $layout, $dir, $x, $y) = @_;
 
     my ($lx,$ly) = $layout->get_size;
-    my $x_actual = $x - $lx/PANGO_SCALE/2;;
-    my $y_actual = $y - $ly/PANGO_SCALE/2;;
+    my $x_actual = $x - $lx / &Pango::SCALE / 2;
+    my $y_actual = $y - $ly / &Pango::SCALE / 2;
 
     for ($dir) {
         if(/s/) {
-            $y_actual = $y - $ly/PANGO_SCALE;
+            $y_actual = $y - $ly/Pango::SCALE;
         }
         if(/n/) {
             $y_actual = $y;
         }
         if(/e/) {
-            $x_actual = $x - $lx/PANGO_SCALE;
+            $x_actual = $x - $lx/Pango::SCALE;
         }
         if(/w/) {
             $x_actual = $x
@@ -631,7 +631,7 @@ sub on_click {
 
     }
     elsif ($ev->button == 3) { #right button for dragging
-        $self->window->set_cursor( $self->{cursors}->{drag} );
+        $self->get_window->set_cursor( $self->{cursors}->{drag} );
         $self->{cursor} = $self->{cursors}->{drag};
         $self->{right_drag} = TRUE;
     }
@@ -674,7 +674,7 @@ sub on_release {
 
     if ($ev->button == 3) { #right button for dragging
         $self->{cursor} = $self->{cursors}->{ch_red};
-        $self->window->set_cursor( $self->{cursor} );
+        $self->get_window->set_cursor( $self->{cursor} );
         $self->{right_drag} = FALSE;
     }
     $self->{last_x} = undef;
@@ -718,8 +718,8 @@ sub on_motion {
     my ($self, $ev) = @_;
     my ($xp, $yp) = ($ev->x - MARG_L, $ev->y - MARG_T);
 
-    my $ha = $self->allocation()->height;
-    my $wa = $self->allocation()->width;
+    my $ha = $self->get_allocation()->{height};
+    my $wa = $self->get_allocation()->{width};
 
     # check if we are entering or leaving plot area
     if ( $xp < 0
@@ -727,14 +727,14 @@ sub on_motion {
       || $yp < 0
       || $yp > $self->{h_view_p}
     ) {
-        $self->window->set_cursor($self->{old_cursor})
+        $self->get_window->set_cursor($self->{old_cursor})
             if ($self->{inside});
         $self->{inside} = 0; 
     }
     else {
         if (! $self->{inside}) {
-            $self->{old_cursor} = $self->window->get_cursor;
-            $self->window->set_cursor($self->{cursor})
+            $self->{old_cursor} = $self->get_window->get_cursor;
+            $self->get_window->set_cursor($self->{cursor})
         }
         $self->{inside} = 1;
     }
@@ -902,9 +902,9 @@ sub find_nearest {
 sub draw {
 
 	my $self = shift;
-    my $alloc = $self->allocation;
-    my $w_bg = $alloc->width;
-    my $h_bg = $alloc->height;
+    my $alloc = $self->get_allocation;
+    my $w_bg = $alloc->{width};
+    my $h_bg = $alloc->{height};
 
     $self->{surf_lbl} =
         Cairo::ImageSurface->create('argb32', $self->{w_view_p},  $self->{h_view_p}+30);
@@ -927,7 +927,7 @@ sub draw {
         $layout->set_text('M');
         Pango::Cairo::update_layout($cr_lbl,$layout);
         my ($lx,$ly) = $layout->get_size;
-        my $em = [$lx/PANGO_SCALE, $ly/PANGO_SCALE];
+        my $em = [$lx/Pango::SCALE, $ly/Pango::SCALE];
 
         my $space = 9;
 
@@ -1136,8 +1136,8 @@ sub draw {
                     $layout->set_markup( $lab->[0] );
                     Pango::Cairo::update_layout($cr_lbl,$layout);
                     my ($lx,$ly) = $layout->get_size;
-                    $cr_lbl->move_to($x-$lx/2/PANGO_SCALE,$y - $ly/PANGO_SCALE - 2);
-                    $y -= $ly/PANGO_SCALE + 1;
+                    $cr_lbl->move_to($x-$lx/2/Pango::SCALE,$y - $ly/Pango::SCALE - 2);
+                    $y -= $ly/Pango::SCALE + 1;
                     Pango::Cairo::layout_path($cr_lbl,$layout);
                     $cr_lbl->set_line_width(3);
                     $cr_lbl->set_source_rgba(1.0, 1.0, 1.0, 1.0);
@@ -1170,8 +1170,8 @@ sub draw {
             $layout->set_markup( $lab->[0] );
             Pango::Cairo::update_layout($cr_lbl,$layout);
             my ($lx,$ly) = $layout->get_size;
-            $cr_lbl->move_to($x-$lx/2/PANGO_SCALE,$y - $ly/PANGO_SCALE - 2);
-            $y -= $ly/PANGO_SCALE + 1;
+            $cr_lbl->move_to($x-$lx/2/Pango::SCALE,$y - $ly/Pango::SCALE - 2);
+            $y -= $ly/Pango::SCALE + 1;
             Pango::Cairo::layout_path($cr_lbl,$layout);
             $cr_lbl->set_line_width(3);
             $cr_lbl->set_source_rgba(1.0, 1.0, 1.0, 1.0);
@@ -1194,12 +1194,12 @@ sub draw {
 
 sub expose {
 
-	my ($self, $event, $cr) = @_;
+	my ($self, $cr) = @_;
 
-	$cr //= Gtk2::Gdk::Cairo::Context->create($self->window);
-    my $alloc = $self->allocation;
-    my $w = $alloc->width;
-    my $h = $alloc->height;
+	#$cr //= Gtk3::Gdk::Cairo::Context->create($self->get_window);
+    my $alloc = $self->get_allocation;
+    my $w = $alloc->{width};
+    my $h = $alloc->{height};
 
     # draw white background
     $cr->save;
@@ -1317,7 +1317,7 @@ sub expose {
         $layout->set_text($d_mz);
         Pango::Cairo::update_layout($cr,$layout);
         my ($lx,$ly) = $layout->get_size;
-        $cr->move_to(($x1+$x2)/2-$lx/2/PANGO_SCALE,$y3 - 12);
+        $cr->move_to(($x1+$x2)/2-$lx/2/Pango::SCALE,$y3 - 12);
         Pango::Cairo::show_layout($cr,$layout);
 
         $cr->restore;
@@ -1396,9 +1396,9 @@ sub INIT_INSTANCE {
 
     $self->set_can_focus(TRUE);
 
-    my $alloc = $self->allocation;
-    my $w = $alloc->width;
-    my $h = $alloc->height;
+    my $alloc = $self->get_allocation;
+    my $w = $alloc->{width};
+    my $h = $alloc->{height};
     $self->{w_surf_p} = $w;
 
     # initialize surfaces
@@ -1420,10 +1420,10 @@ sub INIT_INSTANCE {
     $layout->set_text('M');
     Pango::Cairo::update_layout($cr_lbl,$layout);
     my ($lx,$ly) = $layout->get_size;
-    $self->{em} = [$lx/PANGO_SCALE, $ly/PANGO_SCALE];
+    $self->{em} = [$lx/Pango::SCALE, $ly/Pango::SCALE];
 
     # load cursors
-    my $arrow = Gtk2::Gdk::Cursor->new('left_ptr');
+    my $arrow = Gtk3::Gdk::Cursor->new('left_ptr');
     my %c = (
         'ch_white'   => $icon_ch_white,
         'ch_black'   => $icon_ch_black,
@@ -1433,17 +1433,17 @@ sub INIT_INSTANCE {
     );
     $self->{cursors} = {};
     for (keys %c) {
-        $self->{cursors}->{$_} = Gtk2::Gdk::Cursor->new_from_pixbuf(
+        $self->{cursors}->{$_} = Gtk3::Gdk::Cursor->new_from_pixbuf(
             $arrow->get_display,
             do {
-                my $loader = Gtk2::Gdk::PixbufLoader->new();
+                my $loader = Gtk3::Gdk::PixbufLoader->new();
                 $loader->write( decode_base64( $c{$_} ) );
                 $loader->close;
                 $loader->get_pixbuf();
             },
             8, 8);
     }
-    $self->{cursors}->{drag} = Gtk2::Gdk::Cursor->new('hand2');
+    $self->{cursors}->{drag} = Gtk3::Gdk::Cursor->new('hand2');
     $self->{cursor} = $self->{cursors}->{ch_red};
     $self->set_size_request(40 + MARG_L + MARG_R,20 + MARG_T + MARG_B);
 }
@@ -1457,9 +1457,9 @@ sub resize {
         $offset_c = $self->p2x($self->{data_off_p});
     }
 
-    my $alloc = $self->allocation;
-    my $w = $alloc->width;
-    my $h = $alloc->height;
+    my $alloc = $self->get_allocation;
+    my $w = $alloc->{width};
+    my $h = $alloc->{height};
 
     $self->{w_view_p} = $w - MARG_L - MARG_R;
     $self->{h_view_p} = $h - MARG_T - MARG_B;
@@ -1528,9 +1528,9 @@ sub save_to_png {
 
     my ($self, $fn) = @_;
 
-    my $alloc = $self->allocation;
-    my $w = $alloc->width;
-    my $h = $alloc->height;
+    my $alloc = $self->get_allocation;
+    my $w = $alloc->{width};
+    my $h = $alloc->{height};
 
     my $surf = Cairo::ImageSurface->create('argb32', $w, $h);
     my $cr = Cairo::Context->create($surf);
