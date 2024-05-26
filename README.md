@@ -14,7 +14,7 @@ an overview of an LC-MS/MS run with display of individual MS1 and MS2 spectra.
 It can also show and annotate peptide spectral matches based on pepXML or
 tab-delimited input.
 
-While navigation can be done using a mouse, there are also a set of vim-like
+While navigation can be done using a mouse, there is also a set of vim-like
 keybindings to allow quick navigation via the keyboard. The supported bindings
 are described below.
 
