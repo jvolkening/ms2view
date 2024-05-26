@@ -1,4 +1,4 @@
-![Logo](logo.svg)
+![Logo](graphics/logo.svg)
 
 ms2view - a simple mass spectrum viewer with vim-like bindings
 =======================================
