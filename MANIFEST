@@ -5,3 +5,4 @@ MANIFEST			This list of files
 test_files/TMT_sample_centroid.mzML.gz
 test_files/TMT_sample_profile.mzML.gz
 README.md
+LICENSE
