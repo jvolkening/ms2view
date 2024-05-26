@@ -249,7 +249,7 @@ use constant ZO => 0.80;
 
 # globals
 my $NAME    = 'ms2view';
-my $VERSION = '0.004';
+my $VERSION = '0.005';
 
 my $gobjs   = {};
 my $embedded = get_embedded();
